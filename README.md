@@ -6,6 +6,10 @@ of the page and it peels over, the way a real book does.
 It installs to your phone's home screen and works completely offline. Your books are
 stored on your own device and never uploaded anywhere.
 
+### 👉 [Open the reader](https://elegant-croissant-06564f.netlify.app)
+
+Open that on your phone, then add it to your home screen — see [below](#install-on-your-phone).
+
 ---
 
 ## Features
@@ -20,52 +24,15 @@ stored on your own device and never uploaded anywhere.
 
 ---
 
-## Getting it running
-
-There is no public instance of this app — you host your own copy. It's a folder of static
-files, so this takes a few minutes and costs nothing.
-
-Requires [Node.js](https://nodejs.org) 18 or newer.
-
-**Put it online (what you want for phone use):**
-
-```bash
-git clone https://github.com/MallaShravya/book_reader_flip.git
-cd book_reader_flip
-npm install
-npm run build
-```
-
-That produces a `dist/` folder. Upload it to any static host — [Netlify
-Drop](https://app.netlify.com/drop) is the quickest (drag the folder onto the page), and
-Vercel, Cloudflare Pages or GitHub Pages work equally well. The host gives you an
-`https://…` address: **that is the address you open on your phone.**
-
-The `https` matters. Over plain `http` the app still runs, but browsers will not offer to
-install it and it will not work offline.
-
-**Or just try it on this computer:**
-
-```bash
-npm run dev
-```
-
-Open the `Local` address it prints. It also prints a `Network` address you can open on a
-phone on the same Wi-Fi — handy for a quick look, though installing and offline use need
-the `https` route above.
-
----
-
 ## Using it
 
 ### Install on your phone
 
-1. Open your `https://` address from above in Chrome or Safari
+1. Open **[the reader](https://elegant-croissant-06564f.netlify.app)** in Chrome or Safari
 2. Tap the browser menu and choose **Add to Home screen** (or **Install app**)
 3. Open it from the home screen — it runs full screen, like any other app
 
-It also works as an ordinary browser tab if you'd rather not install it, but offline
-reading requires installing.
+It works as an ordinary browser tab too, but offline reading requires installing.
 
 ### Add books
 
@@ -110,6 +77,31 @@ pieces so each page has less to animate.
 
 The trade-off: each split forces a page break, so a page here and there may end early,
 like the end of a chapter. If you see that and prefer it not to happen, choose **Off**.
+
+---
+
+## Hosting your own copy
+
+The app is a folder of static files, so you can run your own instance for free.
+Requires [Node.js](https://nodejs.org) 18 or newer.
+
+```bash
+git clone https://github.com/MallaShravya/book_reader_flip.git
+cd book_reader_flip
+npm install
+npm run build
+```
+
+That produces a `dist/` folder. Upload it to any static host — [Netlify
+Drop](https://app.netlify.com/drop) is the quickest (drag the folder onto the page), and
+Vercel, Cloudflare Pages or GitHub Pages work equally well. The host gives you an
+`https://…` address to open on your phone.
+
+The `https` matters. Over plain `http` the app still runs, but browsers will not offer to
+install it and it will not work offline.
+
+To try it on your own machine instead, `npm run dev` prints a local address, plus a
+network address you can open from a phone on the same Wi-Fi.
 
 ---
 
