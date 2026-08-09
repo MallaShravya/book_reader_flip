@@ -1,0 +1,17 @@
+node_modules/
+
+# Build output and the deployable bundle
+dist/
+book-reader-dist.zip
+
+# Copied out of node_modules by scripts/sync-pdfjs-assets.mjs on predev/prebuild.
+# Generated, versioned with pdfjs-dist, and ~3MB — regenerated on any install.
+public/pdfjs/
+
+# Scratch file from decompiling page-flip while debugging
+pf-readable.js
+
+*.log
+*.tsbuildinfo
+.DS_Store
+.vite/

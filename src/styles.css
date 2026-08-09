@@ -1,0 +1,554 @@
+/*
+  Book Reader — phone-first.
+
+  Sizing uses 100dvh rather than 100vh: on mobile browsers the URL bar shows
+  and hides, and vh does not account for it, which would leave the book either
+  clipped or scrolling under the chrome.
+*/
+
+:root {
+  --bg: #2b2622;
+  --surface: #37312c;
+  --surface-2: #443c36;
+  --text: #efe6da;
+  --text-dim: #b3a596;
+  --text-faint: #7d7268;
+  --accent: #c98b4b;
+  --danger: #b4553f;
+  --radius: 10px;
+
+  --page-bg: #fbf4e6;
+  --page-text: #2a2622;
+}
+
+[data-theme='light'] {
+  --page-bg: #ffffff;
+  --page-text: #1a1a1a;
+}
+[data-theme='sepia'] {
+  --page-bg: #fbf0da;
+  --page-text: #4a3c28;
+}
+[data-theme='dark'] {
+  --page-bg: #1e1c1a;
+  --page-text: #d8d0c6;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overscroll-behavior: none;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* Stop the pull-to-refresh gesture from firing during a page drag. */
+  overflow: hidden;
+  touch-action: manipulation;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.app {
+  /*
+    Two deliberate belts-and-braces here, both phone-only failure modes:
+
+    1. `100vh` first, `100dvh` second. Chrome only learned `dvh` in v108; on an
+       older browser the dvh line is dropped as invalid and, with no fallback,
+       height falls back to `auto`. Combined with `body { overflow: hidden }`
+       that lets the layout run past the bottom of the screen with no way to
+       scroll to it — the bottom row is simply unreachable.
+
+    2. A floor under the bottom inset. Android commonly reports
+       `safe-area-inset-bottom: 0` even with gesture navigation on, which puts
+       the turn buttons right against the edge, under the gesture strip.
+  */
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: max(env(safe-area-inset-bottom), 8px);
+  overflow: hidden;
+}
+
+/* ----------------------------------------------------------------- library */
+
+.library {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem 1rem 4rem;
+}
+
+.library-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.library h1 {
+  font-size: 1.6rem;
+  margin: 0;
+  font-weight: 600;
+}
+
+.subtle {
+  color: var(--text-faint);
+  font-size: 0.82rem;
+}
+
+.import-zone {
+  margin: 1.1rem 0 1.6rem;
+  border: 1.5px dashed var(--surface-2);
+  border-radius: var(--radius);
+  padding: 1.6rem 1rem;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.import-zone.dragging {
+  border-color: var(--accent);
+  background: rgba(201, 139, 75, 0.08);
+}
+
+.btn {
+  background: var(--accent);
+  color: #22201d;
+  font-weight: 650;
+  padding: 0.7rem 1.3rem;
+  border-radius: var(--radius);
+  font-size: 0.92rem;
+}
+
+.btn-quiet {
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.shelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 1rem;
+}
+
+.book {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.book-cover {
+  aspect-ratio: 2 / 3;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.book-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.book-cover-fallback {
+  padding: 0.6rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  text-align: center;
+  line-height: 1.35;
+}
+
+.book-format {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.book-title {
+  font-size: 0.86rem;
+  line-height: 1.3;
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.book-author {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book-progress {
+  height: 3px;
+  background: var(--surface-2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.book-progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+/* ------------------------------------------------------------------ reader */
+
+/*
+  Grid rather than flex column: the rows are declared explicitly, so the top
+  bar, scrubber and turn buttons always get their natural height and the book
+  gets whatever is left. With a flex column, the flip container's own sizing
+  (StPageFlip sets width:100% plus a padding-bottom aspect-ratio trick, and a
+  min-height of 420px) can win the space negotiation on a short viewport and
+  push the bottom controls off-screen. `1fr` with `minmax(0, …)` cannot.
+*/
+.reader {
+  flex: 1;
+  display: grid;
+  /* Three in-flow rows: top bar, book, scrubber. The turn bar is fixed. */
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--bg);
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.flip-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  /*
+    Gestures are handled in JS, so the browser must not claim the touch first.
+    Without this, Chrome starts a scroll or a swipe-back navigation partway
+    through a drag and the pointerup never arrives as a usable swipe.
+  */
+  touch-action: none;
+}
+
+/* ------------------------------------------------------------- turn buttons */
+
+/*
+  Pinned to the viewport rather than placed in the reader's layout.
+
+  Three separate attempts to keep these buttons in normal flow all lost to
+  something above them overrunning the available height — they are the last
+  row, so they are the first thing pushed off a short screen. Taking them out
+  of flow entirely makes them immune to whatever the flip container decides
+  its height should be. `.reader` reserves matching space below the scrubber
+  so nothing ends up underneath them.
+*/
+.turn-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 15;
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.5rem 0.9rem;
+  padding-bottom: max(env(safe-area-inset-bottom), 0.6rem);
+  background: var(--surface);
+  border-top: 1px solid var(--surface-2);
+  min-height: 62px;
+  align-items: stretch;
+}
+
+/* Room for the pinned bar, so the scrubber is never hidden behind it. */
+.reader-has-controls {
+  padding-bottom: 74px;
+}
+
+.turn-btn {
+  flex: 1;
+  padding: 0.85rem 0.5rem;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  /* Comfortably above the 44px minimum touch target. */
+  min-height: 48px;
+  transition: background 0.12s, opacity 0.12s;
+}
+
+.turn-btn:active:not(:disabled) {
+  background: var(--accent);
+  color: #22201d;
+}
+
+.turn-btn:disabled {
+  opacity: 0.35;
+}
+
+.turn-btn span {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+/* StPageFlip positions its own children; this is just the mount point. */
+.flip-root {
+  margin: 0 auto;
+  /* Never let the library's own sizing spill past the stage. */
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.flip-page {
+  background: var(--page-bg);
+  color: var(--page-text);
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.06);
+  /*
+    This MUST live in CSS, not in an inline style.
+
+    StPageFlip rewrites `element.style.cssText` wholesale on every draw, and
+    what it writes contains no overflow rule — so an inline `overflow: hidden`
+    set at creation is wiped the first time a page is drawn. Each text page
+    holds its entire chapter as a multi-column strip, so once unclipped that
+    strip paints straight over neighbouring pages: the flicker during turns.
+    A class survives because the library only ever touches inline styles.
+  */
+  overflow: hidden;
+}
+
+.flip-page-text {
+  /* Long-form text needs a calmer rhythm than UI defaults give it. */
+  text-rendering: optimizeLegibility;
+}
+
+/* Also class-based rather than inline, for the same clobbering reason. */
+.flip-page-pdf {
+  background: #fff;
+}
+
+.flip-page-text img {
+  display: block;
+  margin: 0.6em auto;
+}
+
+.flip-page-text h1,
+.flip-page-text h2,
+.flip-page-text h3 {
+  line-height: 1.25;
+  margin: 0 0 0.5em;
+  /* Never leave a heading stranded at the foot of a column. */
+  break-after: avoid;
+}
+
+.flip-page-text p {
+  margin: 0 0 0.85em;
+  orphans: 2;
+  widows: 2;
+}
+
+.flip-page-text a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.reader-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.reader-bar .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.reader-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-page {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.icon-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 1.05rem;
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+
+.scrubber {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+/* ---------------------------------------------------------------- settings */
+
+.sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--surface);
+  border-radius: 14px 14px 0 0;
+  padding: 1rem 1.1rem calc(1.1rem + env(safe-area-inset-bottom));
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.4);
+  z-index: 20;
+  animation: rise 0.18s ease-out;
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+.field {
+  margin-bottom: 1.1rem;
+}
+
+.field-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin-bottom: 0.45rem;
+}
+
+.seg {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.seg button {
+  flex: 1;
+  padding: 0.55rem;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 0.82rem;
+}
+
+.seg button[aria-pressed='true'] {
+  background: var(--accent);
+  color: #22201d;
+  font-weight: 650;
+}
+
+/* --------------------------------------------------------------- overlays */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(43, 38, 34, 0.96);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 2rem;
+  text-align: center;
+  z-index: 30;
+}
+
+.bar {
+  width: 220px;
+  height: 4px;
+  background: var(--surface-2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+.bar.indeterminate span {
+  width: 40%;
+  animation: sweep 1.3s ease-in-out infinite;
+}
+
+@keyframes sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(1.5rem + env(safe-area-inset-bottom));
+  background: var(--danger);
+  color: #fff;
+  padding: 0.7rem 1.1rem;
+  border-radius: var(--radius);
+  font-size: 0.84rem;
+  max-width: min(92vw, 460px);
+  z-index: 60;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.empty {
+  text-align: center;
+  color: var(--text-faint);
+  padding: 3rem 1rem;
+  line-height: 1.6;
+}
