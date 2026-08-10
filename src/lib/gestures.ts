@@ -77,6 +77,102 @@ export function attachFlipGestures(
   /** null until the drag is long enough to say which way it is going. */
   let forward: boolean | null = null
 
+  /*
+   * The fold is driven once per frame from a smoothed point, not straight from
+   * each pointer event.
+   *
+   * Two separate problems, one cure. First, phones report touches faster than
+   * they draw — commonly 120-240Hz against a 60 or 90Hz display — so several
+   * fold() calls land between frames and only the last is ever drawn. Which
+   * sample that happens to be varies, so the fold advances unevenly even
+   * though the finger does not.
+   *
+   * Second, digitisers are noisy: a steadily moving finger still reports
+   * positions wobbling by a pixel or so. The library recomputes the clip
+   * polygon and the fold angle from that coordinate, which turns small
+   * positional noise into visible movement along the page edge.
+   *
+   * Following the finger at a fixed fraction per frame fixes both: one update
+   * per draw, and noise averaged out. The lag is well under a frame at normal
+   * dragging speeds, so the page still feels stuck to the fingertip.
+   */
+  const FOLLOW = 0.45
+  let smoothed: Point | null = null
+  let pumpId: number | null = null
+  /** The last point actually handed to the library, after constraining. */
+  let fed: Point | null = null
+
+  /*
+   * Where the fold pivots, and how far from it the finger may drag.
+   *
+   * This is what stops the shimmer, and it is a geometry problem rather than a
+   * drawing one. checkPositionAtCenterLine clamps the fold point twice: once
+   * onto a circle of the page's width about the spine, and then again — onto a
+   * different circle, of the page's diagonal about the opposite corner — but
+   * only `if (bottomRight.x <= 0)`, that is, once the leaf has swung past the
+   * spine. Each clamp recomputes the angle.
+   *
+   * That test is a discrete condition on a continuous quantity. Sitting near
+   * the boundary, a pixel of movement flips it on and off, and the fold snaps
+   * between two different angles from one frame to the next. A finger held
+   * mid-drag does exactly that; a turn animation walks a straight line and
+   * crosses the boundary once, monotonically, which is why turning by button
+   * is clean and turning by hand is not.
+   *
+   * So the drag is confined to the region where neither clamp engages. The
+   * limit is short of the library's own so its first clamp never fires either,
+   * and the release sweep then crosses the boundary in one direction, as the
+   * animation does. It costs nothing in feel: a turn commits at 22% of the
+   * page, and this only bites past 92%.
+   */
+  const FOLD_LIMIT = 0.92
+  let spine: Point | null = null
+  let foldRadius = 0
+
+  const limitToCircle = (point: Point, centre: Point, radius: number): Point => {
+    const dx = point.x - centre.x
+    const dy = point.y - centre.y
+    const distance = Math.hypot(dx, dy)
+    if (distance <= radius || distance === 0) return point
+    return {
+      x: centre.x + (dx / distance) * radius,
+      y: centre.y + (dy / distance) * radius
+    }
+  }
+
+  const pump = (): void => {
+    pumpId = null
+    if (pointerId === null || completing || smoothed === null) return
+
+    smoothed = {
+      x: smoothed.x + (last.x - smoothed.x) * FOLLOW,
+      y: smoothed.y + (last.y - smoothed.y) * FOLLOW
+    }
+    // Smoothing keeps following the finger; only what reaches the library is
+    // constrained, so the fold resumes the moment the drag comes back inside.
+    fed = spine ? limitToCircle(smoothed, spine, foldRadius) : smoothed
+    flip.userMove(fed, true)
+    schedulePump()
+  }
+
+  /*
+   * Keeps running while the finger is down, even with no new events, so the
+   * fold settles onto a finger held still rather than stopping short.
+   *
+   * Safe despite userMove's `distance > 5` guard: that is measured against the
+   * point given to startUserTouch, which the library writes exactly once, so
+   * it is the seed on the page edge — never the previous frame's position.
+   * Small per-frame steps therefore still register.
+   */
+  const schedulePump = (): void => {
+    if (pumpId === null) pumpId = requestAnimationFrame(pump)
+  }
+
+  const stopPump = (): void => {
+    if (pumpId !== null) cancelAnimationFrame(pumpId)
+    pumpId = null
+  }
+
   /** Client coords → the library's element-relative space. */
   const toLocal = (clientX: number, clientY: number): Point => {
     const rect = surface.getBoundingClientRect()
@@ -124,6 +220,9 @@ export function attachFlipGestures(
     start = last = toLocal(e.clientX, e.clientY)
     startTime = Date.now()
     forward = null
+    smoothed = null
+    fed = null
+    spine = null
 
     // Note: startUserTouch is deliberately NOT called yet — see onPointerMove.
     surface.setPointerCapture?.(e.pointerId)
@@ -158,15 +257,31 @@ export function attachFlipGestures(
         y: Math.max(2, Math.min(rect.height - 2, start.y))
       }
       flip.startUserTouch(seed)
+
+      /*
+       * The fold pivots about the spine corner nearest the finger — the
+       * library picks top or bottom the same way, from which half of the page
+       * the touch began in.
+       */
+      spine = {
+        x: forward ? 0 : rect.width,
+        y: start.y >= rect.height / 2 ? rect.height : 0
+      }
+      foldRadius = rect.width * FOLD_LIMIT
+
+      // Start the fold at the real fingertip; smoothing applies to movement
+      // from here on, so there is nothing to catch up to.
+      smoothed = { ...last }
+      schedulePump()
     }
 
-    // The page tracks the finger.
-    flip.userMove(last, true)
+    // No userMove here — the page tracks the finger from pump(), once a frame.
   }
 
   const onPointerUp = (e: PointerEvent): void => {
     if (pointerId !== e.pointerId) return
     pointerId = null
+    stopPump()
     surface.releasePointerCapture?.(e.pointerId)
     if (completing) return
 
@@ -202,22 +317,28 @@ export function attachFlipGestures(
     const index = flip.getCurrentPageIndex()
     const canTurn = forward ? index < flip.getPageCount() - 1 : index > 0
 
+    // Carry on from where the fold is actually drawn rather than from the
+    // fingertip: with smoothing and the fold limit the two differ, and
+    // starting the completion at the raw release point would show as a jump.
+    const drawn = fed ?? end
+
     if ((draggedEnough || swiped) && canTurn) {
       // Deliberately no userStop() here: it clears `isUserTouch`, and
       // userMove() only folds while that flag is set — calling it first would
       // make completeTurn silently do nothing. completeTurn issues the
       // userStop itself, once the fold has been carried past the commit point.
-      completeTurn(end, forward)
+      completeTurn(drawn, forward)
     } else {
       // Not enough intent — let the library snap the page back.
-      flip.userStop(end, false)
+      flip.userStop(drawn, false)
     }
   }
 
   const onPointerCancel = (e: PointerEvent): void => {
     if (pointerId !== e.pointerId) return
     pointerId = null
-    if (!completing) flip.userStop(last, false)
+    stopPump()
+    if (!completing) flip.userStop(fed ?? last, false)
   }
 
   surface.addEventListener('pointerdown', onPointerDown)
@@ -226,6 +347,9 @@ export function attachFlipGestures(
   surface.addEventListener('pointercancel', onPointerCancel)
 
   return () => {
+    // The pump holds a reference to a flipbook that teardown is about to
+    // destroy, so it has to stop with the listeners.
+    stopPump()
     surface.removeEventListener('pointerdown', onPointerDown)
     surface.removeEventListener('pointermove', onPointerMove)
     surface.removeEventListener('pointerup', onPointerUp)

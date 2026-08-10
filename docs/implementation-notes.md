@@ -97,6 +97,7 @@ that looks arbitrary otherwise.
 | `minWidth` decides **one page versus two** (`blockWidth < 2 * minWidth` means portrait), not just a size floor | Lowering it for unrelated reasons gives wider phones a two-page spread. Derive it from the computed page width. |
 | Built-in swipe detection needs a flick completed inside a hardcoded **250 ms**, and a drag only commits once the fold passes `pos.x <= 0` — nearly a full page width | Unusable on a phone. The app sets `useMouseEvents: false` and drives `startUserTouch` / `userMove` / `userStop` itself. |
 | Soft pages have **no separate back face** | The reverse of a turning page is the front's own text, mirrored. Only "hard" pages use `backface-visibility`, and those lose the curl. |
+| `clear()` rewrites `cssText` on **every page in the book** on every frame, to hide the ones not currently drawn | Cost scales with the whole book, not the visible window — a 1700-page EPUB means 1700 style writes per frame. Suspected but not yet confirmed as the reader's dominant per-frame cost. |
 
 ### Settings that must not trigger a rebuild
 
@@ -142,3 +143,46 @@ the container was sized when the sizing was already right and the container simp
 The lesson: when reasoning from the source has failed twice, print the actual DOM state instead of
 theorising a third time. The reader's settings sheet has a **Layout diagnostics** panel for exactly
 this.
+
+---
+
+## Open: the page-turn flicker
+
+Unresolved. Recorded here because six plausible explanations were wrong, and the value of the work so
+far is mostly in what it rules *out*.
+
+`flicker.html` (built from `src/flicker.ts`, a second Vite entry, nothing links to it) runs the same
+library at the same size with the reader's page styling, with each suspect on its own switch. It also
+records, per frame, the folding page's actual rendered angle and the frame timing.
+
+**Measured on a 119Hz Android phone:**
+
+| Case | Result |
+| --- | --- |
+| Text off, shadows off, inset shadow off, grayscale text, layer hint, all inline lengths snapped to the device pixel grid | No effect on the flicker |
+| Controls with no library — rotate; rotate + fixed clip; rotate + per-frame clip; two complementary clips sharing a moving seam | All clean |
+| Library turning by button or auto-turn | Clean |
+| Library drag driven programmatically through `startUserTouch`/`userMove`/`userStop`, no finger | Clean |
+| Library drag with a finger | Flickers |
+
+**What the recordings show during a finger drag:** the fold angle is smooth (path/net ratio 1.34,
+worst frame-to-frame reversal 0.0034 rad ≈ 0.2°), no page is hidden or reshown mid-fold, no element
+swaps roles, and three pages stay visible throughout. But **41% of frames miss the 8.4ms budget**,
+worst case 33.3ms.
+
+So the geometry is right and the frames are late, and it only happens with a finger down.
+
+**The untested hypothesis** is that the library folds on *every* touchmove — 2-4 per displayed frame
+on a phone digitiser — and each call recomputes angle, page rect, both clip polygons and shadow data,
+all but the last discarded unseen. `flicker.html` has a **Coalesce touch (1/frame)** switch that
+wraps the instance's `userMove` and buffers it, which tests this without reimplementing input. The
+comparison to make is late-frame percentage with it off, with it on, and for the simulated drag.
+
+Note the reader **already** coalesces to one `userMove` per frame in `gestures.ts`, and still
+flickers — so if coalescing fixes the harness, the app's dominant per-frame cost is probably
+different (`clear()` above is the candidate) and should be measured directly rather than assumed.
+
+**Unvalidated code still in the tree:** `gestures.ts` confines a drag to `0.92 * pageWidth` from the
+spine (`FOLD_LIMIT`), added to stop a fold-angle oscillation that the recordings later showed does
+not happen. It is harmless but fixes nothing known, and should be reverted unless a reason to keep it
+turns up.

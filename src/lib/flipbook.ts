@@ -47,6 +47,10 @@ export function createFlipbook(
     sizingLoops.delete(container)
   }
 
+  // Whole-pixel container position depends on the stage being measured, so
+  // any fractional layout above us defeats it. Nothing to do here, but see
+  // applySize below and `.flip-stage` in styles.css.
+  //
   // StPageFlip takes over elements that are already children of its container
   // (this is how the reference app wired it up), so attach them first.
   container.innerHTML = ''
@@ -162,8 +166,56 @@ export function createFlipbook(
      */
     container.style.height = `${layout.height}px`
     container.style.maxWidth = '100%'
-    container.style.marginLeft = 'auto'
-    container.style.marginRight = 'auto'
+
+    /*
+     * Centre with explicit margins rather than letting flex do it.
+     *
+     * Flex centring halves the leftover space, and that half is usually a
+     * fraction: a 483px page in a 484px stage sits at x=0.5. alignToPixelGrid
+     * then removes whatever fraction is left over from our ancestors.
+     */
+    const stage = container.parentElement
+    if (stage) {
+      const dx = Math.max(0, Math.floor((stage.clientWidth - containerWidth) / 2))
+      const dy = Math.max(0, Math.floor((stage.clientHeight - layout.height) / 2))
+      container.style.marginLeft = `${dx}px`
+      container.style.marginTop = `${dy}px`
+    }
+    container.style.marginRight = '0'
+    container.style.marginBottom = '0'
+  }
+
+  /*
+   * Nudge the book onto the device pixel grid.
+   *
+   * Integer margins are not enough on their own, because they are measured
+   * from a stage that may itself sit on a fraction — `.reader`'s first grid
+   * row is sized by the top bar, whose height is a rem-derived 57.2px, so
+   * everything below it starts at a fractional y. The offset is inherited no
+   * matter how carefully the margin is computed.
+   *
+   * Nor is an integer CSS pixel the right target. At devicePixelRatio 2.625 —
+   * an ordinary Android value — only multiples of 1/2.625 land on real device
+   * pixels. Anything else is resampled, and resampling that shifts frame to
+   * frame is what shimmering edges are.
+   *
+   * So rather than predicting the position, measure it and correct the
+   * residual. This is ancestor-agnostic and self-correcting: one pass suffices
+   * because a margin change moves `left` by exactly the same amount.
+   */
+  const alignToPixelGrid = (): void => {
+    const dpr = window.devicePixelRatio || 1
+    const snap = (v: number): number => Math.round(v * dpr) / dpr
+
+    const box = container.getBoundingClientRect()
+    const errorX = box.left - snap(box.left)
+    const errorY = box.top - snap(box.top)
+    if (Math.abs(errorX) < 1e-4 && Math.abs(errorY) < 1e-4) return
+
+    const currentX = parseFloat(container.style.marginLeft) || 0
+    const currentY = parseFloat(container.style.marginTop) || 0
+    container.style.marginLeft = `${currentX - errorX}px`
+    container.style.marginTop = `${currentY - errorY}px`
   }
 
   applySize()
@@ -211,6 +263,9 @@ export function createFlipbook(
         box.height >= 1
 
       if (healthy) {
+        // Only meaningful once the box is real; correcting a 0x0 container
+        // would just bake in an offset that the next resize discards.
+        alignToPixelGrid()
         sizingLoops.delete(container)
         return
       }

@@ -87,6 +87,11 @@ export default defineConfig({
   build: {
     target: 'es2022',
     rollupOptions: {
+      // A second page, /flicker.html, isolating the page-turn shimmer. It is
+      // built alongside the app so it can be tested on the real deployed
+      // target and on a real phone, which is the only place the artefact is
+      // visible. Nothing links to it.
+      input: { main: 'index.html', flicker: 'flicker.html' },
       output: {
         // Vite 8 bundles with Rolldown, which supports only the function form
         // of manualChunks. Splitting the two heavyweight libraries out keeps

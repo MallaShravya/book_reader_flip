@@ -311,6 +311,19 @@ export default function Reader({
             `[${label}]`,
             `stage     ${n(s.width)} x ${n(s.height)}`,
             `mount box ${n(m.width)} x ${n(m.height)}  connected=${mount.isConnected}`,
+            // Offsets that miss the device pixel grid are resampled, and
+            // resampling that shifts frame to frame is a shimmering edge.
+            // The grid is 1/dpr, not 1 — an integer CSS pixel is not aligned
+            // at a fractional devicePixelRatio.
+            ((): string => {
+              const dpr = window.devicePixelRatio || 1
+              const off = (v: number): number => Math.abs(v * dpr - Math.round(v * dpr))
+              const aligned = off(m.left) < 0.01 && off(m.top) < 0.01
+              return `origin    left=${m.left.toFixed(3)} top=${m.top.toFixed(3)} dpr=${dpr}  ${
+                aligned ? 'on the pixel grid' : '<-- OFF GRID, shimmers'
+              }`
+            })(),
+            `stage org left=${s.left.toFixed(3)} top=${s.top.toFixed(3)}`,
             `mount css ${cs.width} x ${cs.height}  display=${cs.display}  pos=${cs.position}`,
             `mount inline "${mount.getAttribute('style') ?? '(none)'}"`,
             `children  ${mount.children.length}  wrapper=${Boolean(wrapper)} block=${Boolean(block)}`,
