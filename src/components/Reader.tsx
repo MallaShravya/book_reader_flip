@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { PageFlip } from 'page-flip'
 import type { BookMeta, LoadProgress, ReaderSettings } from '../types'
+import { GLOSS_OPACITY } from '../types'
 import { getFile } from '../lib/db'
 import { parseEpub, releaseEpub, type ParsedEpub } from '../lib/epub'
 import { EpubPaginator } from '../lib/paginate'
@@ -17,6 +18,25 @@ interface Props {
   onProgress: (page: number, pageCount: number) => void
   onClose: () => void
   onError: (message: string) => void
+}
+
+/**
+ * Wait this long after the last typography change before re-laying out.
+ *
+ * Each change re-paginates the entire book, so tapping a stepper several times
+ * in a row would otherwise queue a rebuild per tap. Settling first means one
+ * rebuild for the value you actually stopped on.
+ */
+const SETTLE_MS = 500
+
+/** Debounced mirror of a value, so rapid changes collapse into one. */
+function useSettled<T>(value: T, delay: number): T {
+  const [settled, setSettled] = useState(value)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSettled(value), delay)
+    return () => window.clearTimeout(timer)
+  }, [value, delay])
+  return settled
 }
 
 /**
@@ -48,6 +68,32 @@ export default function Reader({
   const detachGesturesRef = useRef<(() => void) | null>(null)
   const chunkStatsRef = useRef<{ chapters: number; chunks: number } | null>(null)
   const startPageRef = useRef(book.lastPage)
+  /**
+   * Increments on every build. Only the newest build is allowed to clear the
+   * loading overlay — an older one finishing late must not hide a newer one's
+   * progress, and, more importantly, a build that bails out early must never
+   * leave the overlay stuck on. The overlay is a near-opaque dark panel, so
+   * when it stuck it looked exactly like the pages had turned dark grey.
+   */
+  const buildIdRef = useRef(0)
+
+  // Settings that force a re-layout are read in settled form, so the sheet
+  // stays responsive while the book waits for you to finish adjusting.
+  const fontSize = useSettled(settings.fontSize, SETTLE_MS)
+  const lineHeight = useSettled(settings.lineHeight, SETTLE_MS)
+  const fontFamily = useSettled(settings.fontFamily, SETTLE_MS)
+  const flippingTime = useSettled(settings.flippingTime, SETTLE_MS)
+  const chunkChars = useSettled(settings.chunkChars, SETTLE_MS)
+
+  /**
+   * The settings the book is actually laid out with. Theme and ink are
+   * excluded deliberately — they are pure CSS and must never cost a rebuild.
+   */
+  const layoutSettings = useMemo<ReaderSettings>(
+    () => ({ ...settings, fontSize, lineHeight, fontFamily, flippingTime, chunkChars }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fontSize, lineHeight, fontFamily, flippingTime, chunkChars]
+  )
 
   const [size, setSize] = useState<{ w: number; h: number } | null>(null)
   const [loading, setLoading] = useState<LoadProgress | null>(null)
@@ -120,8 +166,15 @@ export default function Reader({
   // once the text has reflowed.
   useEffect(() => {
     if (!size || size.w < 50 || size.h < 50) return
-    const mount = mountRef.current
-    if (!mount) return
+    const stage = stageRef.current
+    if (!stage) return
+
+    // Our own node, created fresh for this build and owned by this effect, so
+    // it cannot be swapped out from under the flipbook by a re-render.
+    const mount = document.createElement('div')
+    mount.className = 'flip-root'
+    stage.replaceChildren(mount)
+    mountRef.current = mount
 
     let cancelled = false
 
@@ -138,11 +191,16 @@ export default function Reader({
         releaseEpub(parsedRef.current)
         parsedRef.current = null
       }
-      mount.innerHTML = ''
+      mount.replaceChildren()
+      mount.remove()
+      if (mountRef.current === mount) mountRef.current = null
     }
 
     const build = async (): Promise<void> => {
-      teardown()
+      // No teardown() here: this effect run has just created a fresh mount,
+      // and the previous run's cleanup has already disposed of its own.
+      // Calling it now would remove the very node we are about to build into.
+      const myBuild = ++buildIdRef.current
       setLoading({ phase: 'reading', message: 'Opening book…', fraction: null })
 
       try {
@@ -162,10 +220,10 @@ export default function Reader({
           // Split oversized chapters so a page carries only its own chunk of
           // DOM. Trades a forced page break at each boundary for a much
           // cheaper flip on long books; `chunkChars: 0` turns it off.
-          const { chapters, stats } = chunkChapters(parsed.chapters, settings.chunkChars)
+          const { chapters, stats } = chunkChapters(parsed.chapters, layoutSettings.chunkChars)
           chunkStatsRef.current = stats
 
-          const paginator = new EpubPaginator(chapters, layout, settings)
+          const paginator = new EpubPaginator(chapters, layout, layoutSettings)
           paginatorRef.current = paginator
 
           await paginator.measure((done, total) => {
@@ -208,7 +266,8 @@ export default function Reader({
         flipRef.current = createFlipbook(mount, pages, {
           layout,
           twoUp,
-          flippingTime: settings.flippingTime,
+          maxShadowOpacity: GLOSS_OPACITY[settings.gloss],
+          flippingTime: layoutSettings.flippingTime,
           startPage,
           onFlip: (index) => {
             setPage(index)
@@ -223,41 +282,74 @@ export default function Reader({
         // library's own input handling is switched off.
         detachGesturesRef.current = attachFlipGestures(mount, flipRef.current)
 
-        // Measured after layout settles, so a sizing bug on a real device can
-        // be read off the screen rather than guessed at.
-        requestAnimationFrame(() => {
+        /*
+         * Deep layout snapshot, taken twice.
+         *
+         * Reporting only the bounding boxes was not enough: they said the
+         * container was 0x0 without saying why. This also records the inline
+         * and computed styles, whether the node is still in the document, and
+         * what the library built inside it — enough to tell "our style was
+         * never applied" from "it was applied and something overrode it".
+         *
+         * The second sample, a few frames later, separates "never sized" from
+         * "sized and then collapsed".
+         */
+        const snapshot = (label: string): string => {
           const stage = stageRef.current
-          const block = mount.querySelector('.stf__block') as HTMLElement | null
-          if (!stage || cancelled) return
+          if (!stage) return `[${label}] stage gone`
           const s = stage.getBoundingClientRect()
           const m = mount.getBoundingClientRect()
+          const cs = getComputedStyle(mount)
+          const wrapper = mount.querySelector('.stf__wrapper') as HTMLElement | null
+          const block = mount.querySelector('.stf__block') as HTMLElement | null
           const b = block?.getBoundingClientRect()
-          const overflow = Math.round(m.height - s.height)
+          const bcs = block ? getComputedStyle(block) : null
+          const wcs = wrapper ? getComputedStyle(wrapper) : null
+          const n = (v: number): number => Math.round(v)
+
+          return [
+            `[${label}]`,
+            `stage     ${n(s.width)} x ${n(s.height)}`,
+            `mount box ${n(m.width)} x ${n(m.height)}  connected=${mount.isConnected}`,
+            `mount css ${cs.width} x ${cs.height}  display=${cs.display}  pos=${cs.position}`,
+            `mount inline "${mount.getAttribute('style') ?? '(none)'}"`,
+            `children  ${mount.children.length}  wrapper=${Boolean(wrapper)} block=${Boolean(block)}`,
+            wcs ? `wrapper   css ${wcs.width} x ${wcs.height} padBottom=${wcs.paddingBottom}` : 'wrapper   (none)',
+            b && bcs ? `block box ${n(b.width)} x ${n(b.height)}  css ${bcs.width} x ${bcs.height}` : 'block     (none)',
+            `pages     ${flipRef.current ? flipRef.current.getPageCount() : 'no flip'}`
+          ].join('\n')
+        }
+
+        requestAnimationFrame(() => {
+          if (cancelled) return
+          const first = snapshot('after build')
           setDiagnostics(
             [
-              `stage    ${Math.round(s.width)} x ${Math.round(s.height)}`,
-              `container ${Math.round(m.width)} x ${Math.round(m.height)}`,
-              b ? `block    ${Math.round(b.width)} x ${Math.round(b.height)}` : 'block    (none)',
-              `page     ${layout.width} x ${layout.height}  pad ${layout.padding}`,
-              `twoUp    ${twoUp}`,
+              first,
+              `page      ${layout.width} x ${layout.height}  pad ${layout.padding}`,
+              `twoUp     ${twoUp}`,
               chunkStatsRef.current
-                ? `chunks   ${chunkStatsRef.current.chapters} chapters -> ${chunkStatsRef.current.chunks} units (limit ${settings.chunkChars || 'off'})`
-                : 'chunks   n/a',
-              `overflow ${overflow > 0 ? `+${overflow}px  <-- controls pushed off` : `${overflow}px ok`}`,
-              `viewport ${window.innerWidth} x ${window.innerHeight}`,
-              `dvh      ${CSS.supports?.('height: 100dvh') ? 'supported' : 'NOT supported'}`
+                ? `chunks    ${chunkStatsRef.current.chapters} -> ${chunkStatsRef.current.chunks} (limit ${layoutSettings.chunkChars || 'off'})`
+                : 'chunks    n/a',
+              `viewport  ${window.innerWidth} x ${window.innerHeight}`
             ].join('\n')
           )
+          window.setTimeout(() => {
+            if (cancelled) return
+            setDiagnostics((prev) => `${prev ?? ''}\n\n${snapshot('+400ms')}`)
+          }, 400)
         })
 
         setPage(startPage)
         setPageCount(pages.length)
         onProgress(startPage, pages.length)
-        setLoading(null)
       } catch (err) {
-        if (cancelled) return
-        setLoading(null)
-        onError(err instanceof Error ? err.message : String(err))
+        if (!cancelled) onError(err instanceof Error ? err.message : String(err))
+      } finally {
+        // Always clear, on every exit path — success, early return, or throw.
+        // Only the newest build may do so, so a superseded one cannot hide the
+        // progress of the build that replaced it.
+        if (buildIdRef.current === myBuild) setLoading(null)
       }
     }
 
@@ -274,16 +366,22 @@ export default function Reader({
     book.id,
     book.format,
     size,
-    settings.fontSize,
-    settings.lineHeight,
-    settings.fontFamily,
-    settings.flippingTime,
-    settings.chunkChars
+    layoutSettings
   ])
 
   // Animated turns, shared by swipes, tap zones, the buttons and the keyboard.
   const goNext = useCallback(() => flipRef.current?.flipNext(), [])
   const goPrev = useCallback(() => flipRef.current?.flipPrev(), [])
+
+  // Gloss is applied to the live flipbook rather than triggering a rebuild.
+  // getSettings() returns the settings object by reference and setShadowData
+  // reads maxShadowOpacity from it every frame, so this lands on the next draw.
+  // pageCount is in the deps as a signal that a flipbook now exists.
+  useEffect(() => {
+    const flip = flipRef.current
+    if (!flip) return
+    flip.getSettings().maxShadowOpacity = GLOSS_OPACITY[settings.gloss]
+  }, [settings.gloss, pageCount])
 
   const jumpTo = useCallback((target: number) => {
     const flip = flipRef.current
@@ -318,7 +416,12 @@ export default function Reader({
       to fix it only because pageCount was by then cached in the book's
       metadata, so the controls were there from the first frame.
     */
-    <div className="reader reader-has-controls" data-theme={settings.theme}>
+    <div
+      className="reader reader-has-controls"
+      data-theme={settings.theme}
+      data-ink={settings.ink}
+      data-gloss={settings.gloss}
+    >
       <div className="reader-bar">
         <button className="icon-btn" onClick={onClose} aria-label="Back to library">
           ‹
@@ -341,9 +444,18 @@ export default function Reader({
         </button>
       </div>
 
-      <div className="flip-stage" ref={stageRef}>
-        <div className="flip-root" ref={mountRef} />
-      </div>
+      {/*
+        Intentionally empty. The flip container is created imperatively by the
+        build effect and appended here.
+
+        It used to be a React-rendered <div className="flip-root">, and React
+        replaced that node at some point after the book had been built into it:
+        diagnostics showed the element fully sized and populated but with
+        connected=false, while the node actually on screen was an empty
+        replacement — a correctly built book rendered into an orphan, which is
+        what the grey stage was. Owning the node ourselves removes the race.
+      */}
+      <div className="flip-stage" ref={stageRef} />
 
       <div className="reader-bar">
         <input

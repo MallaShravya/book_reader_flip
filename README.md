@@ -59,12 +59,15 @@ library deletes that copy; your original file is untouched.
 Tap **Aa** while reading:
 
 - **Theme** — light, sepia or dark
+- **Ink** — normal or soft, for gentler text within any theme
 - **Typeface** — serif or sans
 - **Text size** and **line spacing** — EPUB text reflows to match
+- **Page gloss** — how strongly the page shades as it curls; low is softer and more paper-like
 - **Page turn speed**
 - **Smoothness on long books** — see below
 
-Changing text settings re-lays out the book, which takes a moment on long titles.
+Theme, ink and gloss apply instantly. Text size, spacing, typeface and turn speed re-lay out the
+book, which takes a moment on long titles.
 
 ### Smoothness on long books
 

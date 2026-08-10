@@ -98,9 +98,47 @@ that looks arbitrary otherwise.
 | Built-in swipe detection needs a flick completed inside a hardcoded **250 ms**, and a drag only commits once the fold passes `pos.x <= 0` — nearly a full page width | Unusable on a phone. The app sets `useMouseEvents: false` and drives `startUserTouch` / `userMove` / `userStop` itself. |
 | Soft pages have **no separate back face** | The reverse of a turning page is the front's own text, mirrored. Only "hard" pages use `backface-visibility`, and those lose the curl. |
 
+### Settings that must not trigger a rebuild
+
+Re-laying out a book is expensive, so anything that can be applied without one is. Theme, ink and
+gloss all take effect immediately:
+
+- **Theme and ink** are CSS custom properties keyed off `data-theme` / `data-ink`.
+- **Gloss** mutates `flip.getSettings().maxShadowOpacity` on the live instance. `getSettings()`
+  returns the settings object by reference and `setShadowData` reads it every frame, so the change
+  lands on the next draw. Its blur is CSS keyed off `data-gloss`.
+
+Mutating live settings is strongly preferable to rebuilding, because this library does not survive
+being destroyed and reconstructed cleanly — a rebuilt instance ends up with zero-sized boxes and
+renders nothing.
+
+Typography and chunking do require a rebuild, so they are read through a 500ms debounce
+(`useSettled`) — otherwise each tap of a stepper queues its own full re-pagination.
+
+### `crypto.randomUUID` needs a secure context
+
+Book ids go through `lib/id.ts`, not `crypto.randomUUID()` directly. That API is only defined on
+HTTPS or localhost, so over a plain-http LAN address — the normal way to test a build on a phone —
+it is `undefined` and importing a book throws. `crypto.getRandomValues()` has no such restriction
+and is used instead, so the ids are just as random.
+
 ### A trap of our own
 
-Rendering the book must not change the layout that sizes the book. The controls row is
-always present rather than appearing once the page count is known — otherwise it resized
-the reading area, which re-ran the build effect, which tore down the book that had just
-rendered.
+Two, both about the reading area:
+
+**Rendering the book must not change the layout that sizes the book.** The controls row is always
+present rather than appearing once the page count is known — otherwise it resized the reading area,
+which re-ran the build effect, which tore down the book that had just rendered.
+
+**React must not own the flip container.** It used to be a JSX `<div className="flip-root">`, and
+React replaced that node at some point after the book had been built into it. Diagnostics showed the
+element fully sized and populated but with `connected=false`, while the node actually on screen was
+an empty replacement — a correctly built book rendered into an orphan. The stage just looked blank.
+The build effect now creates that div itself and removes it on cleanup, so there is nothing for a
+re-render to swap out.
+
+That one cost several wrong fixes before the cause was found, all of them attempts to correct *how*
+the container was sized when the sizing was already right and the container simply wasn't on screen.
+The lesson: when reasoning from the source has failed twice, print the actual DOM state instead of
+theorising a third time. The reader's settings sheet has a **Layout diagnostics** panel for exactly
+this.

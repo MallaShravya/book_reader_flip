@@ -15,6 +15,8 @@ export interface FlipbookOptions {
   layout: PageLayout
   /** True when two leaves are shown side by side. */
   twoUp: boolean
+  /** Peak shadow strength during a turn; see GLOSS_OPACITY. */
+  maxShadowOpacity: number
   flippingTime: number
   startPage: number
   onFlip: (pageIndex: number) => void
@@ -22,12 +24,28 @@ export interface FlipbookOptions {
   onOrientationChange?: (orientation: 'portrait' | 'landscape') => void
 }
 
+/**
+ * Pending size-check loops, keyed by container.
+ *
+ * The loop below runs across several frames. Without cancelling it, a rebuild
+ * leaves the previous loop alive, still calling `update()` on a flipbook that
+ * has since been destroyed and writing sizes onto the container the new
+ * flipbook is using.
+ */
+const sizingLoops = new WeakMap<HTMLElement, number>()
+
 export function createFlipbook(
   container: HTMLElement,
   pages: HTMLElement[],
   options: FlipbookOptions
 ): PageFlip {
   const { layout } = options
+
+  const previous = sizingLoops.get(container)
+  if (previous !== undefined) {
+    cancelAnimationFrame(previous)
+    sizingLoops.delete(container)
+  }
 
   // StPageFlip takes over elements that are already children of its container
   // (this is how the reference app wired it up), so attach them first.
@@ -93,7 +111,7 @@ export function createFlipbook(
     clickEventForward: true,
 
     drawShadow: true,
-    maxShadowOpacity: 0.5,
+    maxShadowOpacity: options.maxShadowOpacity,
     flippingTime: options.flippingTime,
     showCover: false,
     startPage: Math.max(0, Math.min(options.startPage, pages.length - 1)),
@@ -130,6 +148,19 @@ export function createFlipbook(
   const containerWidth = twoUpWidth(layout, options.twoUp)
   const applySize = (): void => {
     container.style.width = `${containerWidth}px`
+    /*
+     * Height is set explicitly rather than left to the library.
+     *
+     * StPageFlip derives its height from a `padding-bottom` percentage applied
+     * in setOrientationStyle, which only runs when its internal orientation
+     * *changes*. On a first open that fires; on a rebuild — changing text size,
+     * say — the orientation is already what it was, so nothing sets a height
+     * and the container collapses to 0x0, taking the pages with it. That was
+     * the grey stage: correct page maths, zero-sized container.
+     *
+     * computeLayout already knows the exact height that fits, so state it.
+     */
+    container.style.height = `${layout.height}px`
     container.style.maxWidth = '100%'
     container.style.marginLeft = 'auto'
     container.style.marginRight = 'auto'
@@ -162,20 +193,39 @@ export function createFlipbook(
    */
   let attempts = 0
   const ensureSized = (): void => {
-    applySize()
-    flip.update()
+    try {
+      applySize()
+      flip.update()
 
-    const rect = flip.getBoundsRect()
-    const healthy =
-      rect && Number.isFinite(rect.pageWidth) && rect.pageWidth >= 1 && rect.height >= 1
+      const rect = flip.getBoundsRect()
+      // Check the real box as well as the library's own numbers: the reported
+      // bounds can look sane while the container is actually 0x0, which is
+      // precisely the state that rendered a blank stage.
+      const box = container.getBoundingClientRect()
+      const healthy =
+        rect &&
+        Number.isFinite(rect.pageWidth) &&
+        rect.pageWidth >= 1 &&
+        rect.height >= 1 &&
+        box.width >= 1 &&
+        box.height >= 1
 
-    if (!healthy && attempts++ < 40) {
-      requestAnimationFrame(ensureSized)
-    } else if (!healthy) {
-      console.error('[flipbook] page bounds never became valid', rect)
+      if (healthy) {
+        sizingLoops.delete(container)
+        return
+      }
+      if (attempts++ < 40) {
+        sizingLoops.set(container, requestAnimationFrame(ensureSized))
+      } else {
+        sizingLoops.delete(container)
+        console.error('[flipbook] page bounds never became valid', rect)
+      }
+    } catch {
+      // The flipbook was destroyed mid-loop; nothing left to size.
+      sizingLoops.delete(container)
     }
   }
-  requestAnimationFrame(ensureSized)
+  sizingLoops.set(container, requestAnimationFrame(ensureSized))
 
   return flip
 }

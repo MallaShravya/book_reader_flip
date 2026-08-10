@@ -21,17 +21,40 @@
   --page-text: #2a2622;
 }
 
+/*
+  Each theme sets a page colour and two ink weights.
+
+  `data-ink="soft"` lifts the text a step for a gentler, lower-contrast page.
+  Every pairing below clears WCAG AA for body text (4.5:1); the softest, sepia
+  at 4.55:1, is deliberately close to that floor, so don't lighten these
+  further without re-checking.
+*/
 [data-theme='light'] {
   --page-bg: #ffffff;
-  --page-text: #1a1a1a;
+  --page-text: #1a1a1a; /* 17.4:1 */
 }
+[data-theme='light'][data-ink='soft'] {
+  --page-text: #3f3f3f; /* 10.5:1 */
+}
+
 [data-theme='sepia'] {
-  --page-bg: #fbf0da;
-  --page-text: #4a3c28;
+  /*
+    Aged paper rather than off-white — the previous #fbf0da sat close enough to
+    the light theme to be hard to tell apart.
+  */
+  --page-bg: #f0d6a3;
+  --page-text: #635136; /* 5.4:1 */
 }
+[data-theme='sepia'][data-ink='soft'] {
+  --page-text: #715b3d; /* 4.55:1 */
+}
+
 [data-theme='dark'] {
   --page-bg: #1e1c1a;
-  --page-text: #d8d0c6;
+  --page-text: #d8d0c6; /* 11.1:1 */
+}
+[data-theme='dark'][data-ink='soft'] {
+  --page-text: #b0a89d; /* 7.2:1 */
 }
 
 * {
@@ -338,6 +361,18 @@ button {
   max-height: 100%;
 }
 
+/*
+  Make the library's own boxes fill the container we sized, instead of
+  depending on its padding-bottom aspect-ratio trick — that only runs when its
+  orientation changes, so on a rebuild it left these with no height at all and
+  the whole book collapsed. With border-box (set globally above), any
+  padding-bottom the library does apply is absorbed rather than added.
+*/
+.flip-root .stf__wrapper,
+.flip-root .stf__block {
+  height: 100%;
+}
+
 .flip-page {
   background: var(--page-bg);
   color: var(--page-text);
@@ -363,6 +398,22 @@ button {
 /* Also class-based rather than inline, for the same clobbering reason. */
 .flip-page-pdf {
   background: #fff;
+}
+
+/*
+  Low gloss: soften the shading on the curling page only.
+
+  StPageFlip rewrites these layers' gradients inline on every frame, so their
+  colour stops cannot be edited — but a filter on the element survives that.
+
+  Deliberately only `.stf__innerShadow`, which is the shading on the curling
+  page itself. `.stf__outerShadow` is the shadow cast onto the page beneath;
+  it is clipped to the fold, so blurring it pushes darkness past that edge onto
+  a page with nothing above it to cast the shadow, which reads as a smudge.
+  Contact shadows stay sharp near contact anyway.
+*/
+[data-gloss='low'] .stf__innerShadow {
+  filter: blur(17px);
 }
 
 .flip-page-text img {
@@ -445,8 +496,67 @@ button {
   border-radius: 14px 14px 0 0;
   padding: 1rem 1.1rem calc(1.1rem + env(safe-area-inset-bottom));
   box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.4);
-  z-index: 20;
+  /*
+    Above the loading overlay (30), not below it. Changing text settings
+    re-lays the book out, and with the sheet underneath the overlay the
+    progress screen covered the very control being adjusted.
+  */
+  z-index: 40;
   animation: rise 0.18s ease-out;
+}
+
+/* --------------------------------------------------------------- stepper */
+
+/* Two steppers side by side, so the sheet stays short enough to scan. */
+.field-row {
+  display: flex;
+  gap: 0.7rem;
+}
+
+.field-row .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.stepper {
+  display: flex;
+  align-items: stretch;
+  gap: 0.35rem;
+}
+
+.stepper button {
+  width: 42px;
+  flex-shrink: 0;
+  min-height: 46px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 1.3rem;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+}
+
+.stepper button:active:not(:disabled) {
+  background: var(--accent);
+  color: #22201d;
+}
+
+.stepper button:disabled {
+  opacity: 0.3;
+}
+
+.stepper .value {
+  flex: 1;
+  min-width: 0;
+  min-height: 46px;
+  border-radius: 8px;
+  background: #241f1b;
+  border: 1px solid var(--surface-2);
+  display: grid;
+  place-items: center;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 @keyframes rise {

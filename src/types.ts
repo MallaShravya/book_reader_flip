@@ -32,8 +32,31 @@ export interface RenderedPage {
 
 export type Theme = 'light' | 'sepia' | 'dark'
 
+/** Text weight within a theme: 'normal' is the darker of the two. */
+export type Ink = 'normal' | 'soft'
+
+/**
+ * How pronounced the shading is during a page turn.
+ *
+ * 'high' is the library's original look: a stronger shadow with a hard-edged
+ * gradient, which reads as glossy. 'low' softens the shading on the curling
+ * page while leaving the shadow it casts below crisp — a cast shadow stays
+ * sharp near contact, and blurring it bleeds past the fold edge.
+ */
+export type Gloss = 'high' | 'low'
+
+/** Shadow strength per gloss setting. The blur lives in CSS. */
+export const GLOSS_OPACITY: Record<Gloss, number> = {
+  high: 0.5,
+  low: 0.35
+}
+
 export interface ReaderSettings {
   theme: Theme
+  /** How dark the text sits within the chosen theme. */
+  ink: Ink
+  /** Shading intensity during a page turn. */
+  gloss: Gloss
   /** Base font size in px for reflowed EPUB text. */
   fontSize: number
   /** Multiplier applied to line-height. */
@@ -55,6 +78,8 @@ export interface ReaderSettings {
 
 export const DEFAULT_SETTINGS: ReaderSettings = {
   theme: 'sepia',
+  ink: 'normal',
+  gloss: 'low',
   fontSize: 18,
   lineHeight: 1.6,
   flippingTime: 800,

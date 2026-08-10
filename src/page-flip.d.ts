@@ -79,6 +79,14 @@ declare module 'page-flip' {
     destroy(): void
 
     /**
+     * The live settings object, by reference. `setShadowData` reads
+     * `maxShadowOpacity` from it on every frame, so mutating it changes the
+     * shading on the next draw with no rebuild — which matters, because this
+     * library does not survive being destroyed and reconstructed cleanly.
+     */
+    getSettings(): { maxShadowOpacity: number } & Record<string, unknown>
+
+    /**
      * Undocumented but public interaction API, used by the library's own input
      * layer and verified against the bundled source. Driving these directly is
      * what lets the page follow a finger while the release decision stays ours.

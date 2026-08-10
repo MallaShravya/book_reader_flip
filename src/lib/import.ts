@@ -2,6 +2,7 @@ import type { BookFormat, BookMeta } from '../types'
 import { parseEpub, releaseEpub } from './epub'
 import { PdfBook } from './pdf'
 import { saveBook } from './db'
+import { newId } from './id'
 
 /**
  * Bringing a file into the library.
@@ -55,7 +56,7 @@ export async function importFile(file: File): Promise<ImportResult> {
   const bytes = await file.arrayBuffer()
 
   const meta: BookMeta = {
-    id: crypto.randomUUID(),
+    id: newId(),
     title: titleFromFilename(file.name),
     author: 'Unknown author',
     format,
