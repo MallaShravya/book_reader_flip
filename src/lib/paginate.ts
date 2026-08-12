@@ -142,6 +142,39 @@ export class EpubPaginator {
     box.innerHTML = ''
   }
 
+  /**
+   * The whole result of `measure()`: one page count per chapter.
+   *
+   * Everything downstream — addresses, elements, hydration, the chapter/page
+   * mapping — is derived from these numbers, so they are the only thing worth
+   * keeping between openings.
+   */
+  get pageCounts(): number[] {
+    return this.spans.map((s) => s.pageCount)
+  }
+
+  /**
+   * Adopt counts measured earlier instead of measuring again.
+   *
+   * Returns false if they cannot belong to this book, in which case the caller
+   * must measure: the count array has to line up with the chapters one for
+   * one. That check is what keeps a stale or corrupted entry from quietly
+   * producing a book whose pages address the wrong text.
+   */
+  restore(pageCounts: number[]): boolean {
+    if (pageCounts.length !== this.chapters.length) return false
+    if (!pageCounts.every((n) => Number.isInteger(n) && n >= 1)) return false
+
+    this.spans = pageCounts.map((pageCount, chapterIndex) => ({ chapterIndex, pageCount }))
+    this.addresses = []
+    for (const span of this.spans) {
+      for (let p = 0; p < span.pageCount; p++) {
+        this.addresses.push({ chapterIndex: span.chapterIndex, pageInChapter: p })
+      }
+    }
+    return true
+  }
+
   /** Build the (empty) page elements StPageFlip will manage. */
   createElements(): HTMLElement[] {
     this.elements = this.addresses.map((_, i) => {

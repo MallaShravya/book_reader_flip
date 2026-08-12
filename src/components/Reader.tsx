@@ -2,13 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { PageFlip } from 'page-flip'
 import type { BookMeta, LoadProgress, ReaderSettings } from '../types'
 import { GLOSS_OPACITY } from '../types'
-import { getFile } from '../lib/db'
+import { getFile, getPagination, paginationKey, savePagination } from '../lib/db'
 import { parseEpub, releaseEpub, type ParsedEpub } from '../lib/epub'
 import { EpubPaginator } from '../lib/paginate'
 import { chunkChapters } from '../lib/chunk'
 import { PdfBook } from '../lib/pdf'
 import { computeLayout, createFlipbook } from '../lib/flipbook'
-import { attachFlipGestures } from '../lib/gestures'
+import { attachFlipGestures, DEFAULT_THRESHOLDS } from '../lib/gestures'
+import {
+  enterFullscreen,
+  exitFullscreen,
+  isFullscreen,
+  onFullscreenChange,
+  supportsFullscreen
+} from '../lib/fullscreen'
 import SettingsSheet from './SettingsSheet'
 
 interface Props {
@@ -101,6 +108,64 @@ export default function Reader({
   const [pageCount, setPageCount] = useState(book.pageCount)
   const [showSettings, setShowSettings] = useState(false)
   const [diagnostics, setDiagnostics] = useState<string | null>(null)
+  const [fullscreen, setFullscreen] = useState(isFullscreen)
+  /**
+   * Whether the bars are showing *while in full screen*. Outside full screen
+   * they are always present and this is not consulted.
+   */
+  const [chromeRevealed, setChromeRevealed] = useState(false)
+
+  // --- full screen ----------------------------------------------------------
+  //
+  // Environment-static, so it is worth settling once: the answer cannot change
+  // while the reader is mounted.
+  const canFullscreen = useMemo(() => supportsFullscreen(), [])
+
+  // Track the real state rather than assuming our own toggle is the only way
+  // out. Escape and the Android back gesture both leave fullscreen without
+  // going through the button.
+  useEffect(
+    () =>
+      onFullscreenChange(() => {
+        const active = isFullscreen()
+        setFullscreen(active)
+        // Entering means the page alone; leaving hands the bars back anyway,
+        // so reset either way and let the next entry start bare.
+        setChromeRevealed(false)
+      }),
+    []
+  )
+
+  /**
+   * Tapping the middle of the page brings the bars back — the only way to
+   * reach the controls once they are hidden, short of the system's own exit.
+   */
+  const onCenterTap = useCallback((): void => {
+    // Outside full screen the middle stays inert, exactly as before.
+    if (!isFullscreen()) return
+    setChromeRevealed((shown) => !shown)
+  }, [])
+
+  const toggleFullscreen = useCallback((): void => {
+    // A rejection means the browser declined — no user gesture in hand, or a
+    // permissions-policy block. Either way the button re-syncs from the
+    // fullscreenchange event, so there is nothing to recover here.
+    const change = isFullscreen() ? exitFullscreen() : enterFullscreen()
+    void change.catch(() => undefined)
+  }, [])
+
+  /*
+   * Leave fullscreen when the reader closes.
+   *
+   * The control lives in the reader bar and nowhere else, so a fullscreen that
+   * outlived the reader would strand the library with no way back short of a
+   * system gesture.
+   */
+  useEffect(() => {
+    return () => {
+      void exitFullscreen().catch(() => undefined)
+    }
+  }, [])
 
   // --- measure the stage ----------------------------------------------------
   //
@@ -208,7 +273,24 @@ export default function Reader({
         if (!bytes) throw new Error('This book’s file is missing from storage.')
         if (cancelled) return
 
-        const { layout, twoUp } = computeLayout(size.w, size.h)
+        /*
+         * Read live rather than from the `fullscreen` state, and deliberately
+         * left out of this effect's deps.
+         *
+         * Entering full screen frees ~170px of stage, far past RESIZE_EPSILON,
+         * so the resize already schedules exactly one rebuild. Depending on
+         * the state as well would add a second, racing one — fired before the
+         * new size had been measured, and so laying the book out for the
+         * screen it just left.
+         *
+         * EPUB only. Filling works by reflowing text into whatever shape it is
+         * given, and a PDF page cannot reflow — its proportions are fixed by
+         * the document. Filling would only stretch the white leaf around an
+         * unchanged page, so a PDF keeps a page-shaped leaf and is centred in
+         * the stage instead.
+         */
+        const fillScreen = isFullscreen() && book.format === 'epub'
+        const { layout, twoUp } = computeLayout(size.w, size.h, fillScreen)
         let pages: HTMLElement[] = []
 
         if (book.format === 'epub') {
@@ -226,16 +308,45 @@ export default function Reader({
           const paginator = new EpubPaginator(chapters, layout, layoutSettings)
           paginatorRef.current = paginator
 
-          await paginator.measure((done, total) => {
-            if (!cancelled) {
-              setLoading({
-                phase: 'paginating',
-                message: `Laying out pages… ${done} of ${total} chapters`,
-                fraction: done / total
-              })
-            }
+          /*
+           * Measuring is the expensive half of opening a book — every chapter
+           * laid out into a hidden box, images awaited, a reflow read back,
+           * and a yield to the event loop between each. All it yields is one
+           * page count per chapter, so it is worth keeping.
+           *
+           * The key covers everything that moves a page break: the page size
+           * and every typographic setting. A different font size or a rotated
+           * phone is a genuinely different pagination and correctly misses.
+           */
+          const cacheKey = paginationKey({
+            bookId: book.id,
+            width: layout.width,
+            height: layout.height,
+            padding: layout.padding,
+            fontSize: layoutSettings.fontSize,
+            lineHeight: layoutSettings.lineHeight,
+            fontFamily: layoutSettings.fontFamily,
+            chunkChars: layoutSettings.chunkChars
           })
+          const cached = await getPagination(cacheKey)
           if (cancelled) return
+
+          if (!cached || !paginator.restore(cached)) {
+            await paginator.measure((done, total) => {
+              if (!cancelled) {
+                setLoading({
+                  phase: 'paginating',
+                  message: `Laying out pages… ${done} of ${total} chapters`,
+                  fraction: done / total
+                })
+              }
+            })
+            if (cancelled) return
+
+            // Fire and forget: a cache that fails to write costs a
+            // measurement next time and nothing else.
+            void savePagination(cacheKey, paginator.pageCounts).catch(() => undefined)
+          }
 
           pages = paginator.createElements()
         } else {
@@ -280,7 +391,14 @@ export default function Reader({
 
         // Drive the fold ourselves — see lib/gestures.ts for why the
         // library's own input handling is switched off.
-        detachGesturesRef.current = attachFlipGestures(mount, flipRef.current)
+        detachGesturesRef.current = attachFlipGestures(
+          mount,
+          flipRef.current,
+          DEFAULT_THRESHOLDS,
+          // Stable across renders, so this does not drag the build effect
+          // into re-running every time the bars are toggled.
+          { onCenterTap }
+        )
 
         /*
          * Deep layout snapshot, taken twice.
@@ -411,7 +529,10 @@ export default function Reader({
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'ArrowRight') goNext()
       else if (e.key === 'ArrowLeft') goPrev()
-      else if (e.key === 'Escape') onClose()
+      // In fullscreen the browser spends Escape on leaving it, and this
+      // handler still runs. Closing the book as well would make one press do
+      // two things — read the page, lose the page.
+      else if (e.key === 'Escape' && !isFullscreen()) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -434,8 +555,10 @@ export default function Reader({
       data-theme={settings.theme}
       data-ink={settings.ink}
       data-gloss={settings.gloss}
+      data-fullscreen={fullscreen ? 'on' : 'off'}
+      data-chrome={fullscreen && !chromeRevealed ? 'hidden' : 'shown'}
     >
-      <div className="reader-bar">
+      <div className="reader-bar reader-bar-top">
         <button className="icon-btn" onClick={onClose} aria-label="Back to library">
           ‹
         </button>
@@ -448,6 +571,23 @@ export default function Reader({
             {__BUILD_ID__}
           </div>
         </div>
+        {canFullscreen && (
+          <button
+            className="icon-btn"
+            onClick={toggleFullscreen}
+            aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+            aria-pressed={fullscreen}
+          >
+            {/* Corners point outward to expand, inward to come back. */}
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              {fullscreen ? (
+                <path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5" />
+              ) : (
+                <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5" />
+              )}
+            </svg>
+          </button>
+        )}
         <button
           className="icon-btn"
           onClick={() => setShowSettings((s) => !s)}
@@ -470,7 +610,7 @@ export default function Reader({
       */}
       <div className="flip-stage" ref={stageRef} />
 
-      <div className="reader-bar">
+      <div className="reader-bar reader-bar-foot">
         <input
           className="scrubber"
           type="range"

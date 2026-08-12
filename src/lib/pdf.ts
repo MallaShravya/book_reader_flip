@@ -160,7 +160,23 @@ export class PdfBook {
       canvas.style.width = `${Math.round(base.width * fit)}px`
       canvas.style.height = `${Math.round(base.height * fit)}px`
       canvas.style.display = 'block'
+      /*
+       * Centre the rasterised page within the leaf, on both axes.
+       *
+       * `margin: auto` alone only ever centred it horizontally — vertical auto
+       * margins compute to zero in block layout — so any PDF whose proportions
+       * differ from the leaf's sat hard against the top edge with all the
+       * slack below it.
+       *
+       * Done with a relative offset rather than flex or absolute positioning
+       * because both would need a rule on the *page* element, and StPageFlip
+       * rewrites that element's cssText wholesale on every draw. The canvas's
+       * own styles are ours alone and survive.
+       */
       canvas.style.margin = 'auto'
+      canvas.style.position = 'relative'
+      canvas.style.top = '50%'
+      canvas.style.transform = 'translateY(-50%)'
 
       const context = canvas.getContext('2d')
       if (!context) return

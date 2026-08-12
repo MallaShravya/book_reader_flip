@@ -13,6 +13,16 @@ import { DEFAULT_SETTINGS } from '../types'
 const META_PREFIX = 'meta:'
 const FILE_PREFIX = 'file:'
 const SETTINGS_KEY = 'settings'
+const PAGES_PREFIX = 'pages:'
+
+/**
+ * Bump to invalidate every cached pagination.
+ *
+ * Needed whenever a change alters how measurement comes out — the page CSS,
+ * the chunking, the column arithmetic — since the stored counts would
+ * otherwise be believed and be wrong.
+ */
+const PAGINATION_VERSION = 1
 
 export async function listBooks(): Promise<BookMeta[]> {
   const allKeys = await keys()
@@ -45,6 +55,57 @@ export async function getFile(id: string): Promise<ArrayBuffer | undefined> {
 export async function deleteBook(id: string): Promise<void> {
   await del(FILE_PREFIX + id)
   await del(META_PREFIX + id)
+
+  // A book can hold several paginations — one per size and typography it has
+  // been read at. Removing the book has to take all of them, or they linger
+  // with nothing to belong to.
+  const allKeys = await keys()
+  await Promise.all(
+    allKeys
+      .filter(
+        (k): k is string =>
+          typeof k === 'string' && k.startsWith(PAGES_PREFIX) && k.includes(`:${id}:`)
+      )
+      .map((k) => del(k))
+  )
+}
+
+/**
+ * Identifies one pagination: a book, laid out at one page size with one set of
+ * typography.
+ *
+ * Every input that can change where the page breaks fall has to be in here.
+ * Miss one and a stale count is served with confidence — the failure would be
+ * a book that reports the wrong number of pages and skips text at the seams.
+ */
+export function paginationKey(parts: {
+  bookId: string
+  width: number
+  height: number
+  padding: number
+  fontSize: number
+  lineHeight: number
+  fontFamily: string
+  chunkChars: number
+}): string {
+  return [
+    PAGES_PREFIX + PAGINATION_VERSION,
+    parts.bookId,
+    `${parts.width}x${parts.height}p${parts.padding}`,
+    `f${parts.fontSize}`,
+    `l${parts.lineHeight}`,
+    parts.fontFamily,
+    `c${parts.chunkChars}`
+  ].join(':')
+}
+
+/** Per-chapter page counts from a previous measurement, if there is one. */
+export async function getPagination(key: string): Promise<number[] | undefined> {
+  return get<number[]>(key)
+}
+
+export async function savePagination(key: string, pageCounts: number[]): Promise<void> {
+  await set(key, pageCounts)
 }
 
 export async function loadSettings(): Promise<ReaderSettings> {

@@ -280,7 +280,25 @@ button {
   overflow: hidden;
 }
 
+/*
+  Place the three rows explicitly rather than relying on auto-placement.
+
+  Auto-placement counts only in-flow children, and in full screen the bars are
+  taken out of flow. The stage was then the only item left, so it landed in
+  row 1 — the `auto` one — and sized itself to the book already inside it
+  instead of filling the screen, leaving rows 2 and 3 empty underneath. That
+  was the page sliding up under a band of grey.
+*/
+.reader-bar-top {
+  grid-row: 1;
+}
+
+.reader-bar-foot {
+  grid-row: 3;
+}
+
 .flip-stage {
+  grid-row: 2;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -335,6 +353,57 @@ button {
 /* Room for the pinned bar, so the scrubber is never hidden behind it. */
 .reader-has-controls {
   padding-bottom: 74px;
+}
+
+/*
+  Full screen: the page, and nothing else.
+
+  The bars are taken out of flow rather than hidden in place, and that is the
+  whole design. The stage's measured size is what computeLayout paginates
+  from, so a bar that still occupied a grid row would re-paginate the entire
+  book each time it appeared or left — a visible rebuild, and a lost place,
+  for what should be a glance at the page number. Floating them over the page
+  means entering full screen costs one rebuild (the stage genuinely grew) and
+  summoning the controls afterwards costs none.
+
+  Reserving nothing at the foot goes with it: `.reader-has-controls` holds
+  74px for the fixed turn bar, which in full screen is overlay, not furniture.
+*/
+.reader[data-fullscreen='on'] {
+  padding-bottom: 0;
+}
+
+.reader[data-fullscreen='on'] .reader-bar,
+.reader[data-fullscreen='on'] .turn-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  transition: opacity 0.18s ease;
+}
+
+.reader[data-fullscreen='on'] .reader-bar-top {
+  top: 0;
+}
+
+/* Directly above the turn bar, whose reserved height this matches. */
+.reader[data-fullscreen='on'] .reader-bar-foot {
+  bottom: 74px;
+}
+
+.reader[data-fullscreen='on'] .turn-bar {
+  position: absolute;
+  bottom: 0;
+}
+
+/*
+  Hidden, but still laid out — opacity and pointer-events only, never
+  `display`, so that showing them again moves nothing.
+*/
+.reader[data-chrome='hidden'] .reader-bar,
+.reader[data-chrome='hidden'] .turn-bar {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .turn-btn {
@@ -504,6 +573,18 @@ button {
   font-size: 1.05rem;
   background: var(--surface-2);
   flex-shrink: 0;
+}
+
+/* Line icons, so they pick up the theme's text colour like the glyph buttons. */
+.icon-btn svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .scrubber {

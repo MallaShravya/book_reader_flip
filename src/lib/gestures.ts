@@ -51,6 +51,16 @@ export const DEFAULT_THRESHOLDS: GestureThresholds = {
   completeMs: 150
 }
 
+export interface GestureHandlers {
+  /**
+   * A tap in the inert middle zone — neither turn zone.
+   *
+   * The reader uses it to summon the controls back in full screen, where
+   * nothing else on the page is tappable.
+   */
+  onCenterTap?: () => void
+}
+
 interface Point {
   x: number
   y: number
@@ -65,7 +75,8 @@ interface Point {
 export function attachFlipGestures(
   mount: HTMLElement,
   flip: PageFlip,
-  thresholds: GestureThresholds = DEFAULT_THRESHOLDS
+  thresholds: GestureThresholds = DEFAULT_THRESHOLDS,
+  handlers: GestureHandlers = {}
 ): () => void {
   const surface = (mount.querySelector('.stf__block') as HTMLElement | null) ?? mount
 
@@ -297,7 +308,9 @@ export function attachFlipGestures(
       const relative = end.x / rect.width
       if (relative <= thresholds.tapZone) flip.flipPrev()
       else if (relative >= 1 - thresholds.tapZone) flip.flipNext()
-      // The middle is inert, so tapping while reading does nothing.
+      // The middle turns no page. It stays inert unless someone asks for it,
+      // so tapping while reading still does nothing by default.
+      else handlers.onCenterTap?.()
       return
     }
 

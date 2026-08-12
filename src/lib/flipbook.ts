@@ -295,10 +295,18 @@ function twoUpWidth(layout: PageLayout, twoUp: boolean): number {
  * In landscape the book shows two leaves, so each page gets half the width.
  * The 1:1.5 ratio is the usual trade paperback proportion and keeps text
  * measures readable.
+ *
+ * `fill` abandons that ratio and takes the whole space instead. It exists for
+ * full screen, and it is the only thing that makes full screen do anything on
+ * a phone: a portrait page is limited by *width*, not height — 360px across
+ * gives 540px tall, which already fitted — so the reclaimed height was simply
+ * going unused and the page came out exactly the same size, just with more
+ * margin around it.
  */
 export function computeLayout(
   containerWidth: number,
-  containerHeight: number
+  containerHeight: number,
+  fill = false
 ): { layout: PageLayout; twoUp: boolean } {
   const twoUp = containerWidth > containerHeight && containerWidth >= 820
 
@@ -306,9 +314,10 @@ export function computeLayout(
   const ratio = 1.5
 
   let width = availableWidth
-  let height = width * ratio
+  let height = fill ? containerHeight : width * ratio
 
-  if (height > containerHeight) {
+  // Only the ratio-preserving path can overflow; `fill` is the space itself.
+  if (!fill && height > containerHeight) {
     height = containerHeight
     width = height / ratio
   }
