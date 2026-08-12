@@ -109,11 +109,15 @@ export default function Reader({
   const [showSettings, setShowSettings] = useState(false)
   const [diagnostics, setDiagnostics] = useState<string | null>(null)
   const [fullscreen, setFullscreen] = useState(isFullscreen)
+  /** Bars put away by a tap on the middle of the page. */
+  const [chromeHidden, setChromeHidden] = useState(false)
   /**
-   * Whether the bars are showing *while in full screen*. Outside full screen
-   * they are always present and this is not consulted.
+   * What is being typed into the page box, or null when nothing is.
+   *
+   * Held apart from `page` so that turning pages while the box is focused does
+   * not rewrite what is half-typed underneath the cursor.
    */
-  const [chromeRevealed, setChromeRevealed] = useState(false)
+  const [pageDraft, setPageDraft] = useState<string | null>(null)
 
   // --- full screen ----------------------------------------------------------
   //
@@ -129,21 +133,21 @@ export default function Reader({
       onFullscreenChange(() => {
         const active = isFullscreen()
         setFullscreen(active)
-        // Entering means the page alone; leaving hands the bars back anyway,
-        // so reset either way and let the next entry start bare.
-        setChromeRevealed(false)
+        // Entering full screen means the page alone, so start bare. Leaving it
+        // hands the bars back, since the button that got you here lives there.
+        setChromeHidden(active)
       }),
     []
   )
 
   /**
-   * Tapping the middle of the page brings the bars back — the only way to
-   * reach the controls once they are hidden, short of the system's own exit.
+   * Tapping the middle of the page puts the bars away, and brings them back.
+   *
+   * The middle turns no page, so it is the one part of the page with nothing
+   * else to do. In full screen it is also the only way back to the controls.
    */
   const onCenterTap = useCallback((): void => {
-    // Outside full screen the middle stays inert, exactly as before.
-    if (!isFullscreen()) return
-    setChromeRevealed((shown) => !shown)
+    setChromeHidden((hidden) => !hidden)
   }, [])
 
   const toggleFullscreen = useCallback((): void => {
@@ -524,9 +528,28 @@ export default function Reader({
     setPage(clamped)
   }, [])
 
+  /**
+   * Commit whatever has been typed into the page box.
+   *
+   * Pages read from 1 on screen and from 0 internally, hence the offset.
+   * `jumpTo` clamps, so a number past the end lands on the last page instead
+   * of failing, and anything unparseable simply reverts.
+   */
+  const commitPageJump = useCallback((): void => {
+    if (pageDraft === null) return
+    const wanted = Number.parseInt(pageDraft, 10)
+    if (Number.isFinite(wanted)) jumpTo(wanted - 1)
+    setPageDraft(null)
+  }, [pageDraft, jumpTo])
+
   // Arrow keys are free to support and make desktop testing far easier.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      // Never take keys from a field being typed into. The page box needs its
+      // own arrows to move the caret, and the slider its own to nudge.
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.isContentEditable)) return
+
       if (e.key === 'ArrowRight') goNext()
       else if (e.key === 'ArrowLeft') goPrev()
       // In fullscreen the browser spends Escape on leaving it, and this
@@ -556,7 +579,7 @@ export default function Reader({
       data-ink={settings.ink}
       data-gloss={settings.gloss}
       data-fullscreen={fullscreen ? 'on' : 'off'}
-      data-chrome={fullscreen && !chromeRevealed ? 'hidden' : 'shown'}
+      data-chrome={chromeHidden ? 'hidden' : 'shown'}
     >
       <div className="reader-bar reader-bar-top">
         <button className="icon-btn" onClick={onClose} aria-label="Back to library">
@@ -611,6 +634,35 @@ export default function Reader({
       <div className="flip-stage" ref={stageRef} />
 
       <div className="reader-bar reader-bar-foot">
+        {/*
+          Typing a page number beats dragging the slider on a long book, where
+          one pixel of travel can be several pages.
+        */}
+        <form
+          className="page-jump"
+          onSubmit={(e) => {
+            e.preventDefault()
+            commitPageJump()
+          }}
+        >
+          <input
+            className="page-input"
+            type="text"
+            // `numeric` rather than type="number": it raises the digit keypad
+            // on a phone without the spinner arrows a stepper would add.
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={pageDraft ?? String(page + 1)}
+            onChange={(e) => setPageDraft(e.target.value.replace(/\D/g, ''))}
+            // Selecting on focus means typing replaces the current page rather
+            // than appending a digit to it.
+            onFocus={(e) => e.target.select()}
+            onBlur={commitPageJump}
+            disabled={pageCount < 1}
+            aria-label="Go to page"
+          />
+          <span className="page-total">/{pageCount}</span>
+        </form>
         <input
           className="scrubber"
           type="range"

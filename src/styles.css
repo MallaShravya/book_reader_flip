@@ -398,10 +398,15 @@ button {
 
 /*
   Hidden, but still laid out — opacity and pointer-events only, never
-  `display`, so that showing them again moves nothing.
+  `display`, so that showing them again moves nothing. Moving them would
+  resize the stage, and the stage is what the book is paginated against.
+
+  The turn buttons only go in full screen. Outside it the tap puts away the
+  title and the page number, and leaving Previous/Next means there is still a
+  way to turn a page that does not depend on knowing about the gestures.
 */
 .reader[data-chrome='hidden'] .reader-bar,
-.reader[data-chrome='hidden'] .turn-bar {
+.reader[data-fullscreen='on'][data-chrome='hidden'] .turn-bar {
   opacity: 0;
   pointer-events: none;
 }
@@ -531,6 +536,7 @@ button {
   padding: 0.6rem 0.9rem;
   background: var(--surface);
   flex-shrink: 0;
+  transition: opacity 0.18s ease;
   /*
     Required, and not merely defensive: this bar is a grid item, and a grid
     item's default `min-width: auto` is its *min-content* width. The ellipsis
@@ -588,8 +594,37 @@ button {
 }
 
 .scrubber {
-  width: 100%;
+  /* Was width:100%, which overflowed once the page box joined it in the bar. */
+  flex: 1;
+  min-width: 0;
   accent-color: var(--accent);
+}
+
+/* Type a page number: on a long book one pixel of slider is several pages. */
+.page-jump {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.page-input {
+  width: 3.4em;
+  padding: 0.3rem 0.35rem;
+  border: none;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.page-input:disabled {
+  opacity: 0.5;
 }
 
 /* ---------------------------------------------------------------- settings */
