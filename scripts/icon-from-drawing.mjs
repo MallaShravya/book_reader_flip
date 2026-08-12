@@ -86,34 +86,59 @@ function roundRectPath(ctx, x, y, size, r) {
 }
 
 /**
- * Compose the trimmed artwork onto a square.
+ * The trimmed drawing with its black knocked out, at source resolution.
  *
- * `round` clips the corners so they come out transparent, for the icons a
- * platform displays as they are. The maskable one stays a full square,
- * because the launcher does its own cropping and any rounding here would show
- * up as a bite taken out of its background.
+ * Done once, and before anything is scaled, which is the whole point. Knock
+ * the black out after scaling and every edge has already been blended with
+ * it, leaving a dark fringe around each shelf that no threshold can pick
+ * apart. Removing it first means the scaler blends orange with transparency
+ * instead, and the edges come out clean.
+ *
+ * The gaps between the books go too — in the drawing they are the same black
+ * as the ground, and there is no way to keep one without the other. On a dark
+ * background they read the same; on a pale one the shelf will look airier
+ * than the original.
  */
-function compose(size, fit, round) {
+const art = createCanvas(artW, artH)
+{
+  const ctx = art.getContext('2d')
+  ctx.drawImage(image, minX, minY, artW, artH, 0, 0, artW, artH)
+  const pixels = ctx.getImageData(0, 0, artW, artH)
+  const px = pixels.data
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i] <= TOLERANCE && px[i + 1] <= TOLERANCE && px[i + 2] <= TOLERANCE) px[i + 3] = 0
+  }
+  ctx.putImageData(pixels, 0, 0)
+}
+
+/**
+ * Compose the artwork onto a square.
+ *
+ * `background` null leaves it transparent, so the drawing sits directly on
+ * whatever is behind it — the app's own background in the header, the
+ * wallpaper on a home screen. Rounding is then pointless and skipped: there
+ * is no ground to round off.
+ */
+function compose(size, fit, background) {
   const canvas = createCanvas(size, size)
   const ctx = canvas.getContext('2d')
 
-  if (round) {
+  if (background) {
     ctx.save()
     roundRectPath(ctx, 0, 0, size, size * RADIUS)
     ctx.clip()
+    ctx.fillStyle = background
+    ctx.fillRect(0, 0, size, size)
   }
-
-  ctx.fillStyle = BACKGROUND
-  ctx.fillRect(0, 0, size, size)
 
   // Fitted by height: the drawing is taller than it is wide, so height is
   // what runs out first, and scaling by width would crop the shelves.
   const scale = (size * fit) / artH
   const w = Math.round(artW * scale)
   const h = Math.round(artH * scale)
-  ctx.drawImage(image, minX, minY, artW, artH, Math.round((size - w) / 2), Math.round((size - h) / 2), w, h)
+  ctx.drawImage(art, 0, 0, artW, artH, Math.round((size - w) / 2), Math.round((size - h) / 2), w, h)
 
-  if (round) ctx.restore()
+  if (background) ctx.restore()
   return canvas
 }
 
@@ -134,9 +159,9 @@ function shareCard(width = 1200, height = 630) {
   const w = Math.round(artW * scale)
   const h = Math.round(artH * scale)
   ctx.drawImage(
-    image,
-    minX,
-    minY,
+    art,
+    0,
+    0,
     artW,
     artH,
     Math.round((width - w) / 2),
@@ -147,11 +172,21 @@ function shareCard(width = 1200, height = 630) {
   return canvas
 }
 
+/**
+ * The app's background, used where a ground is unavoidable.
+ *
+ * A maskable icon cannot be transparent: the launcher crops it to its own
+ * shape and fills nothing in behind, so transparency there shows up as a
+ * hole. It gets the app's own colour rather than the drawing's black, which
+ * is what was asked to go.
+ */
+const APP_BG = '#2b2622'
+
 for (const [file, canvas] of [
-  ['public/icon-512.png', compose(512, FIT, true)],
-  ['public/icon-192.png', compose(192, FIT, true)],
-  ['public/favicon-64.png', compose(64, FIT, true)],
-  ['public/icon-maskable-512.png', compose(512, MASKABLE_FIT, false)],
+  ['public/icon-512.png', compose(512, FIT, null)],
+  ['public/icon-192.png', compose(192, FIT, null)],
+  ['public/favicon-64.png', compose(64, FIT, null)],
+  ['public/icon-maskable-512.png', compose(512, MASKABLE_FIT, APP_BG)],
   ['public/share-card.png', shareCard()]
 ]) {
   writeFileSync(file, canvas.toBuffer('image/png'))

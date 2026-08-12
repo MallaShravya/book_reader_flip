@@ -40,7 +40,18 @@ export default function Library({
       onDrop={onDrop}
     >
       <div className="library-head">
-        <h1>Library</h1>
+        <div className="library-title">
+          {/*
+            BASE_URL rather than a plain "/icon-192.png": this is a public
+            asset referenced from a component, and Vite only rewrites paths in
+            index.html. Served from a sub-path, the bare path would resolve
+            against the domain root and 404.
+
+            Decorative — the heading beside it already says Library.
+          */}
+          <img src={`${import.meta.env.BASE_URL}icon-192.png`} alt="" />
+          <h1>Library</h1>
+        </div>
         {storage && (
           <span className="subtle">
             {storage.usedMB < 1 ? '<1' : storage.usedMB.toFixed(0)} MB used

@@ -126,6 +126,23 @@ button {
   margin-bottom: 0.35rem;
 }
 
+.library-title {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+/*
+  The app's own icon, which already carries its rounded corners and its black
+  ground, so it needs no framing here.
+*/
+.library-title img {
+  width: 34px;
+  height: 34px;
+  display: block;
+  flex-shrink: 0;
+}
+
 .library h1 {
   font-size: 1.6rem;
   margin: 0;
