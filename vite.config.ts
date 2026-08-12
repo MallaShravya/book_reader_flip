@@ -15,7 +15,22 @@ const BUILD_ID = (() => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 })()
 
+/**
+ * Where this build will be served from.
+ *
+ * Defaults to the domain root and is overridden by the Pages workflow, which
+ * serves the same app from /<repo>/. Keeping it a build-time variable means
+ * one config still suits both, matching the manifest's relative `start_url`.
+ *
+ * It has to be an absolute path rather than './'. pdf.js resolves its runtime
+ * asset URLs (wasm decoders, cmaps, fonts) inside its worker, and a relative
+ * path there resolves against the worker's own location in /assets/ — so the
+ * decoders would 404, and pdf.js fails those silently.
+ */
+const BASE = process.env.BASE_PATH ?? '/'
+
 export default defineConfig({
+  base: BASE,
   define: {
     __BUILD_ID__: JSON.stringify(BUILD_ID)
   },

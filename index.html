@@ -14,6 +14,14 @@
     />
     <meta name="theme-color" content="#2b2622" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <!--
+      iOS reads none of the manifest's icons when adding to the home screen —
+      without this it uses a screenshot of the page instead. The apple-prefixed
+      capable flag is still what older iOS looks for to open standalone.
+    -->
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Reader" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Book Reader</title>
   </head>
