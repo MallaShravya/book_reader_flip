@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { PageFlip } from 'page-flip'
-import type { BookMeta, LoadProgress, ReaderSettings } from '../types'
+import type { BookMeta, LoadProgress, ReaderSettings, ReadingAnchor } from '../types'
 import { GLOSS_OPACITY } from '../types'
 import { getFile, getPagination, paginationKey, savePagination } from '../lib/db'
 import { parseEpub, releaseEpub, type ParsedEpub } from '../lib/epub'
@@ -23,7 +23,7 @@ interface Props {
   book: BookMeta
   settings: ReaderSettings
   onSettingsChange: (patch: Partial<ReaderSettings>) => void
-  onProgress: (page: number, pageCount: number) => void
+  onProgress: (page: number, pageCount: number, anchor?: ReadingAnchor | null) => void
   onClose: () => void
   onError: (message: string) => void
 }
@@ -76,6 +76,14 @@ export default function Reader({
   const detachGesturesRef = useRef<(() => void) | null>(null)
   const chunkStatsRef = useRef<{ chapters: number; chunks: number } | null>(null)
   const startPageRef = useRef(book.lastPage)
+  /**
+   * The reading place, in the book's own terms.
+   *
+   * Kept alongside startPageRef rather than instead of it: this is the better
+   * answer when it can be resolved, and the page fraction is what is left for
+   * PDFs and for books opened before anchors existed.
+   */
+  const anchorRef = useRef<ReadingAnchor | null>(book.lastAnchor ?? null)
   /**
    * Increments on every build. Only the newest build is allowed to clear the
    * loading overlay — an older one finishing late must not hide a newer one's
@@ -428,10 +436,24 @@ export default function Reader({
           return
         }
 
-        // Restore position proportionally — after a reflow the old index is
-        // not the same place in the book.
+        /*
+         * Restore the reading place.
+         *
+         * The anchor first: it names a chapter and how far through it, so a
+         * change of text size or a rotation puts you back within a page or so
+         * of where you were. Scaling the old page number by the new page count
+         * is the fallback — it is all a PDF can offer, and all a book has
+         * before its first anchor is written — and it drifts, because it
+         * assumes every part of a book reflows by the same ratio.
+         */
+        const anchored = anchorRef.current
+          ? (paginatorRef.current?.pageForAnchor(anchorRef.current) ?? null)
+          : null
+
         const fraction = pageCount > 0 ? startPageRef.current / pageCount : 0
-        const startPage = Math.max(0, Math.min(Math.round(fraction * pages.length), pages.length - 1))
+        const startPage =
+          anchored ??
+          Math.max(0, Math.min(Math.round(fraction * pages.length), pages.length - 1))
 
         setLoading({ phase: 'rendering', message: 'Preparing pages…', fraction: null })
         paginatorRef.current?.hydrateAround(startPage)
@@ -448,9 +470,13 @@ export default function Reader({
           onFlip: (index) => {
             setPage(index)
             startPageRef.current = index
+            // Taken from the live paginator, so it describes this layout's
+            // page in terms that outlast it.
+            const anchor = paginatorRef.current?.anchorForPage(index) ?? null
+            anchorRef.current = anchor
             paginatorRef.current?.hydrateAround(index)
             pdfRef.current?.renderAround(index)
-            onProgress(index, pages.length)
+            onProgress(index, pages.length, anchor)
           }
         })
 
@@ -538,7 +564,11 @@ export default function Reader({
 
         setPage(startPage)
         setPageCount(pages.length)
-        onProgress(startPage, pages.length)
+        // Re-anchor to the rebuilt layout. Without this the stored place stays
+        // described against the pagination it was taken from, and each
+        // successive text-size change would compound the last one's rounding.
+        anchorRef.current = paginatorRef.current?.anchorForPage(startPage) ?? anchorRef.current
+        onProgress(startPage, pages.length, anchorRef.current)
       } catch (err) {
         if (!cancelled) onError(err instanceof Error ? err.message : String(err))
       } finally {

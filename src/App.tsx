@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import type { BookMeta, ReaderSettings } from './types'
+import type { BookMeta, ReaderSettings, ReadingAnchor } from './types'
 import { DEFAULT_SETTINGS } from './types'
 import {
   deleteBook,
@@ -81,7 +81,7 @@ export default function App(): ReactNode {
   // flip animation away from disk I/O.
   const progressTimer = useRef<number | undefined>(undefined)
   const onProgress = useCallback(
-    (page: number, pageCount: number) => {
+    (page: number, pageCount: number, anchor?: ReadingAnchor | null) => {
       const book = open
       if (!book) return
       window.clearTimeout(progressTimer.current)
@@ -90,6 +90,9 @@ export default function App(): ReactNode {
           ...book,
           lastPage: page,
           pageCount,
+          // Kept when a format cannot produce one — a PDF has no chapters, and
+          // clearing it would lose an EPUB's place on a stray call.
+          lastAnchor: anchor ?? book.lastAnchor,
           progress: pageCount > 1 ? page / (pageCount - 1) : 0,
           lastOpenedAt: Date.now()
         }

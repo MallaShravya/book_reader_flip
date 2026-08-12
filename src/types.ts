@@ -2,6 +2,23 @@
 
 export type BookFormat = 'epub' | 'pdf'
 
+/**
+ * Where the reader had got to, expressed against the book rather than the
+ * layout.
+ *
+ * A page number is only meaningful for the pagination that produced it, and
+ * pagination changes with text size, with the page size, and so with turning
+ * the phone over. Naming the chapter and how far through it the reader was
+ * gives something that survives all of those, because a chapter boundary is a
+ * fact about the book.
+ */
+export interface ReadingAnchor {
+  /** The chapter document, matching an EpubChapter's href. */
+  href: string
+  /** 0–1 through that chapter. */
+  fraction: number
+}
+
 /** A book in the library. The file bytes live separately, keyed by the same id. */
 export interface BookMeta {
   id: string
@@ -18,6 +35,11 @@ export interface BookMeta {
   progress: number
   /** Page index to resume at. Meaningful only alongside `pageCount`. */
   lastPage: number
+  /**
+   * Where to resume, in the book's own terms. Preferred over `lastPage` when
+   * present; absent for PDFs, and for books last read before this existed.
+   */
+  lastAnchor?: ReadingAnchor
   /** Pagination is layout-dependent, so this is only a hint for the progress bar. */
   pageCount: number
 }

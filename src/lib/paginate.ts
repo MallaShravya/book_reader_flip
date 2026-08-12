@@ -1,5 +1,5 @@
 import type { EpubChapter } from './epub'
-import type { ReaderSettings } from '../types'
+import type { ReaderSettings, ReadingAnchor } from '../types'
 
 /**
  * Lays reflowable EPUB text out into fixed-size pages.
@@ -318,6 +318,57 @@ export class EpubPaginator {
     ].join(';')
 
     element.replaceChildren(inner)
+  }
+
+  /**
+   * Where each chapter *document* sits in the book: first page, and how many.
+   *
+   * Keyed by href rather than by chapter index because chunking splits one
+   * document across several entries, and those indices shift with the chunk
+   * size setting. The href does not.
+   */
+  private documentRanges(): Map<string, { start: number; pages: number }> {
+    const ranges = new Map<string, { start: number; pages: number }>()
+    let page = 0
+    for (const span of this.spans) {
+      const href = this.chapters[span.chapterIndex]?.href
+      if (href) {
+        const existing = ranges.get(href)
+        if (existing) existing.pages += span.pageCount
+        else ranges.set(href, { start: page, pages: span.pageCount })
+      }
+      page += span.pageCount
+    }
+    return ranges
+  }
+
+  /**
+   * Describe a page as a position in the book, for storing a reading place.
+   *
+   * A fraction of the chapter rather than a page within it: at a larger text
+   * size a chapter simply has more pages, so "page 4 of this chapter" moves,
+   * while "a third of the way in" does not.
+   */
+  anchorForPage(page: number): ReadingAnchor | null {
+    const address = this.addresses[page]
+    if (!address) return null
+    const href = this.chapters[address.chapterIndex]?.href
+    if (!href) return null
+
+    const range = this.documentRanges().get(href)
+    if (!range) return null
+
+    const offset = page - range.start
+    return { href, fraction: range.pages > 0 ? offset / range.pages : 0 }
+  }
+
+  /** Turn a stored place back into a page, or null if the chapter is gone. */
+  pageForAnchor(anchor: ReadingAnchor): number | null {
+    const range = this.documentRanges().get(anchor.href)
+    if (!range) return null
+
+    const offset = Math.round(anchor.fraction * range.pages)
+    return Math.max(range.start, Math.min(range.start + range.pages - 1, range.start + offset))
   }
 
   /** Global page index where a chapter begins — used for the table of contents. */
