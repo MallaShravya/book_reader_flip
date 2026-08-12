@@ -52,6 +52,8 @@ library deletes that copy; your original file is untouched.
 | Tap the left or right edge | Previous / next page |
 | **Previous** / **Next** buttons | Same page turn, without swiping |
 | Slider at the bottom | Jump anywhere in the book |
+| Box beside the slider | Type a page number to jump to it |
+| Contents button, top right | Chapters, and the headings within them |
 | Full screen button, left of **Aa** | Hides everything but the page |
 | Tap the middle of the page | Brings the controls back in full screen |
 | Arrow keys | Turn pages on a desktop |
@@ -143,7 +145,7 @@ For the details behind these choices, see [`docs/implementation-notes.md`](docs/
 
 ## Current limitations
 
-- **No table of contents yet** — use the slider to move around a book
+- **No contents list for PDFs** — EPUBs have one; PDF outlines are not read yet
 - **PDF text can't be selected or searched** — PDF pages are drawn as images
 - **The back of a turning page shows the front's text**, mirrored, rather than being blank
 - **Rotating the device re-lays out the book**, which takes a moment on long titles

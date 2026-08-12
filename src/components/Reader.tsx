@@ -17,6 +17,7 @@ import {
   supportsFullscreen
 } from '../lib/fullscreen'
 import SettingsSheet from './SettingsSheet'
+import ContentsSheet, { type ChapterMark } from './ContentsSheet'
 
 interface Props {
   book: BookMeta
@@ -83,6 +84,8 @@ export default function Reader({
    * when it stuck it looked exactly like the pages had turned dark grey.
    */
   const buildIdRef = useRef(0)
+  /** Chapter href -> the page it starts on, for resolving links in the text. */
+  const chapterStartsRef = useRef<Map<string, number>>(new Map())
 
   // Settings that force a re-layout are read in settled form, so the sheet
   // stays responsive while the book waits for you to finish adjusting.
@@ -107,6 +110,9 @@ export default function Reader({
   const [page, setPage] = useState(book.lastPage)
   const [pageCount, setPageCount] = useState(book.pageCount)
   const [showSettings, setShowSettings] = useState(false)
+  const [showContents, setShowContents] = useState(false)
+  /** Chapter starts for this book, empty when it has none worth showing. */
+  const [contents, setContents] = useState<ChapterMark[]>([])
   const [diagnostics, setDiagnostics] = useState<string | null>(null)
   const [fullscreen, setFullscreen] = useState(isFullscreen)
   /** Bars put away by a tap on the middle of the page. */
@@ -309,7 +315,13 @@ export default function Reader({
           const { chapters, stats } = chunkChapters(parsed.chapters, layoutSettings.chunkChars)
           chunkStatsRef.current = stats
 
-          const paginator = new EpubPaginator(chapters, layout, layoutSettings)
+          // What the contents list points at, plus where the book's own links
+          // go — both need a page, and both are found in the same pass.
+          const wanted = new Set([
+            ...parsed.toc.flatMap((chapter) => chapter.sections.map((section) => section.mark)),
+            ...parsed.linkMarks
+          ])
+          const paginator = new EpubPaginator(chapters, layout, layoutSettings, wanted)
           paginatorRef.current = paginator
 
           /*
@@ -335,7 +347,7 @@ export default function Reader({
           const cached = await getPagination(cacheKey)
           if (cancelled) return
 
-          if (!cached || !paginator.restore(cached)) {
+          if (!cached || !paginator.restore(cached.counts, cached.marks)) {
             await paginator.measure((done, total) => {
               if (!cancelled) {
                 setLoading({
@@ -349,8 +361,55 @@ export default function Reader({
 
             // Fire and forget: a cache that fails to write costs a
             // measurement next time and nothing else.
-            void savePagination(cacheKey, paginator.pageCounts).catch(() => undefined)
+            void savePagination(cacheKey, {
+              counts: paginator.pageCounts,
+              marks: paginator.markPages
+            }).catch(() => undefined)
           }
+
+          /*
+           * Chapter starts, resolved to page numbers.
+           *
+           * Done here because it needs both halves at once: the contents list
+           * from the file, and a paginated book to ask where things landed.
+           * The join is on href — `chapters` here is the *chunked* list, whose
+           * indices no longer match the spine, but whose hrefs still do. The
+           * first chunk carrying an href is where that chapter begins.
+           */
+          const firstChunkByHref = new Map<string, number>()
+          chapters.forEach((chunk, i) => {
+            if (!firstChunkByHref.has(chunk.href)) firstChunkByHref.set(chunk.href, i)
+          })
+
+          // Kept for the link handler, which has to answer "where does this
+          // chapter start?" long after this build has finished.
+          chapterStartsRef.current = new Map(
+            [...firstChunkByHref].map(([href, chunk]) => [href, paginator.pageForChapter(chunk)])
+          )
+          setContents(
+            parsed.toc.flatMap((entry) => {
+              const chunk = firstChunkByHref.get(entry.href)
+              if (chunk === undefined) return []
+              const start = paginator.pageForChapter(chunk)
+
+              /*
+               * Sections keep their reading order but are sorted by the page
+               * they resolved to, which is the one ordering that cannot be
+               * wrong. A section whose mark was never found falls back to the
+               * chapter's own first page rather than disappearing — it is
+               * still a real heading, and sending someone to the top of the
+               * right chapter beats offering them nothing.
+               */
+              const sections = entry.sections
+                .map((section) => ({
+                  title: section.title,
+                  page: paginator.pageForMark(section.mark) ?? start
+                }))
+                .sort((a, b) => a.page - b.page)
+
+              return [{ title: entry.title, page: start, sections }]
+            })
+          )
 
           pages = paginator.createElements()
         } else {
@@ -360,6 +419,8 @@ export default function Reader({
           await pdf.open(bytes)
           if (cancelled) return
           pages = pdf.createElements(layout)
+          // PDFs carry their own outline, which this does not read yet.
+          setContents([])
         }
 
         if (cancelled || pages.length === 0) {
@@ -528,6 +589,39 @@ export default function Reader({
     setPage(clamped)
   }, [])
 
+  /*
+   * Follow a link in the text.
+   *
+   * Delegated from the stage, which outlives every rebuild — the pages
+   * themselves are torn down and remade whenever the book is re-laid out, so
+   * a listener on a page would not survive a change of text size.
+   *
+   * Exact where the destination was measured, and the top of the right
+   * chapter where it was not: past the measurement cap, or in a book that
+   * links to an id that does not exist.
+   */
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+
+    const onClick = (e: MouseEvent): void => {
+      const target = e.target as HTMLElement | null
+      const link = target?.closest?.('[data-link]')
+      if (!link) return
+
+      e.preventDefault()
+      const destination = link.getAttribute('data-link') ?? ''
+      const [path] = destination.split('#')
+
+      const page =
+        paginatorRef.current?.pageForMark(destination) ?? chapterStartsRef.current.get(path)
+      if (page !== undefined) jumpTo(page)
+    }
+
+    stage.addEventListener('click', onClick)
+    return () => stage.removeEventListener('click', onClick)
+  }, [jumpTo])
+
   /**
    * Commit whatever has been typed into the page box.
    *
@@ -594,6 +688,19 @@ export default function Reader({
             {__BUILD_ID__}
           </div>
         </div>
+        {/* Hidden rather than disabled when a book has no chapters: a control
+            that never does anything is worse than one that is not there. */}
+        {contents.length > 1 && (
+          <button
+            className="icon-btn"
+            onClick={() => setShowContents((s) => !s)}
+            aria-label="Contents"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h16M4 12h16M4 17h10" />
+            </svg>
+          </button>
+        )}
         {canFullscreen && (
           <button
             className="icon-btn"
@@ -697,6 +804,15 @@ export default function Reader({
           Next <span aria-hidden="true">›</span>
         </button>
       </div>
+
+      {showContents && (
+        <ContentsSheet
+          chapters={contents}
+          page={page}
+          onSelect={jumpTo}
+          onClose={() => setShowContents(false)}
+        />
+      )}
 
       {showSettings && (
         <SettingsSheet

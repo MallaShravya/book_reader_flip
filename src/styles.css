@@ -644,6 +644,133 @@ button {
   opacity: 0.5;
 }
 
+/* ---------------------------------------------------------------- contents */
+
+.sheet-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.9rem;
+}
+
+/*
+  Capped so the sheet never becomes the whole screen, and scrollable within
+  that cap — a long book can have hundreds of chapters, and the Done button
+  has to stay reachable without scrolling to the end of them.
+*/
+.contents-list {
+  max-height: min(60vh, 26rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+}
+
+.contents-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.contents-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.9rem;
+  width: 100%;
+  padding: 0.75rem 0.2rem;
+  text-align: left;
+  border-bottom: 1px solid var(--surface-2);
+  color: var(--text-dim);
+}
+
+.contents-row .contents-item {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+  Indented, quieter, and smaller — a section is subordinate to its chapter.
+
+  The right padding matches the chevron column beside every chapter row, so
+  the page numbers form one column down the whole list rather than stepping
+  in and out as the rows change shape.
+*/
+.contents-item.is-section {
+  padding-left: 1.5rem;
+  padding-right: calc(44px + 0.2rem);
+  font-size: 0.88rem;
+  color: var(--text-faint);
+}
+
+.contents-toggle {
+  flex-shrink: 0;
+  width: 44px;
+  display: grid;
+  place-items: center;
+  border-bottom: 1px solid var(--surface-2);
+  color: var(--text-faint);
+}
+
+.contents-toggle svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.15s ease;
+}
+
+.contents-toggle svg[data-open='true'] {
+  transform: rotate(180deg);
+}
+
+.contents-item[data-current='true'] {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/*
+  Right-aligned in a fixed column so the titles start on one line however many
+  digits the number runs to. `ch` rather than px: it is the width of a digit
+  in the current font, and tabular-nums makes every digit that same width, so
+  the column is exactly two digits wide and grows for a three-digit book.
+*/
+.contents-index {
+  flex-shrink: 0;
+  min-width: 2ch;
+  text-align: right;
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.contents-item[data-current='true'] .contents-index {
+  color: inherit;
+}
+
+.contents-title {
+  flex: 1;
+  min-width: 0;
+  /* Long chapter names are common; two lines, then ellipsis. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.contents-page {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.contents-item[data-current='true'] .contents-page {
+  color: inherit;
+}
+
 /* ---------------------------------------------------------------- settings */
 
 .sheet {

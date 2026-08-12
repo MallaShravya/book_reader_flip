@@ -22,7 +22,7 @@ const PAGES_PREFIX = 'pages:'
  * the chunking, the column arithmetic — since the stored counts would
  * otherwise be believed and be wrong.
  */
-const PAGINATION_VERSION = 1
+const PAGINATION_VERSION = 2
 
 export async function listBooks(): Promise<BookMeta[]> {
   const allKeys = await keys()
@@ -99,13 +99,29 @@ export function paginationKey(parts: {
   ].join(':')
 }
 
-/** Per-chapter page counts from a previous measurement, if there is one. */
-export async function getPagination(key: string): Promise<number[] | undefined> {
-  return get<number[]>(key)
+/**
+ * Everything one measurement produced.
+ *
+ * `marks` joined `counts` in version 2, for the pages that chapter sections
+ * start on. They are measured in the same pass, and a cache hit skips that
+ * pass entirely — so anything not stored here is simply not available when
+ * the cache is warm.
+ */
+export interface Pagination {
+  counts: number[]
+  marks: Record<string, number>
 }
 
-export async function savePagination(key: string, pageCounts: number[]): Promise<void> {
-  await set(key, pageCounts)
+export async function getPagination(key: string): Promise<Pagination | undefined> {
+  const stored = await get<Pagination>(key)
+  // Guard the shape as well as the version: a half-written or hand-edited
+  // entry would otherwise be trusted straight into the layout.
+  if (!stored || !Array.isArray(stored.counts)) return undefined
+  return { counts: stored.counts, marks: stored.marks ?? {} }
+}
+
+export async function savePagination(key: string, pagination: Pagination): Promise<void> {
+  await set(key, pagination)
 }
 
 export async function loadSettings(): Promise<ReaderSettings> {

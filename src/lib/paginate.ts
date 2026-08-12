@@ -83,10 +83,21 @@ export class EpubPaginator {
   /** chapterIndex -> parsed, media-constrained DOM, ready to clone. */
   private templates = new Map<number, HTMLElement>()
 
+  /** mark -> global page index, for the marks asked for. */
+  private marks = new Map<string, number>()
+
   constructor(
     private chapters: EpubChapter[],
     private layout: PageLayout,
-    private settings: ReaderSettings
+    private settings: ReaderSettings,
+    /**
+     * Ids and data-marks worth locating while measuring.
+     *
+     * Passed in rather than resolving everything: a chapter can carry an id on
+     * every paragraph, and each one costs a rect read. Only what the contents
+     * list actually points at is worth the measurement.
+     */
+    private wanted: Set<string> = new Set()
   ) {}
 
   get pageCount(): number {
@@ -129,9 +140,39 @@ export class EpubPaginator {
       await waitForImages(box)
 
       const pageCount = Math.max(1, Math.ceil(box.scrollWidth / this.columnStride))
+      // Where this chunk's first page sits in the book, captured before its
+      // own pages are added.
+      const chunkStart = this.addresses.length
+
       this.spans.push({ chapterIndex: i, pageCount })
       for (let p = 0; p < pageCount; p++) {
         this.addresses.push({ chapterIndex: i, pageInChapter: p })
+      }
+
+      /*
+       * Locate any wanted marks in this chunk.
+       *
+       * The chapter is laid out as one wide strip of columns, so a mark's
+       * horizontal offset *is* its page: which column it falls in. Measured
+       * against the box rather than via offsetLeft, which would be relative to
+       * the nearest positioned ancestor and so wrong for anything inside one.
+       *
+       * Candidates are filtered before any rect is read — reading one forces
+       * layout, and a chapter can hold hundreds of ids.
+       */
+      if (this.wanted.size > 0) {
+        const boxLeft = box.getBoundingClientRect().left
+        const href = this.chapters[i].href
+        for (const el of Array.from(box.querySelectorAll('[id], [data-mark]'))) {
+          // Injected marks are unique across the book already. Ids are only
+          // unique within their own document, so they are qualified by it.
+          const key = (el as HTMLElement).dataset.mark ?? (el.id ? `${href}#${el.id}` : null)
+          if (!key || !this.wanted.has(key) || this.marks.has(key)) continue
+
+          const offset = el.getBoundingClientRect().left - boxLeft
+          const column = Math.floor(offset / this.columnStride)
+          this.marks.set(key, chunkStart + Math.max(0, Math.min(pageCount - 1, column)))
+        }
       }
 
       onProgress?.(i + 1, this.chapters.length)
@@ -153,6 +194,16 @@ export class EpubPaginator {
     return this.spans.map((s) => s.pageCount)
   }
 
+  /** Resolved marks, as a plain object so they can be cached. */
+  get markPages(): Record<string, number> {
+    return Object.fromEntries(this.marks)
+  }
+
+  /** The page a mark falls on, or undefined if it was never found. */
+  pageForMark(mark: string): number | undefined {
+    return this.marks.get(mark)
+  }
+
   /**
    * Adopt counts measured earlier instead of measuring again.
    *
@@ -161,9 +212,11 @@ export class EpubPaginator {
    * one. That check is what keeps a stale or corrupted entry from quietly
    * producing a book whose pages address the wrong text.
    */
-  restore(pageCounts: number[]): boolean {
+  restore(pageCounts: number[], marks: Record<string, number> = {}): boolean {
     if (pageCounts.length !== this.chapters.length) return false
     if (!pageCounts.every((n) => Number.isInteger(n) && n >= 1)) return false
+
+    this.marks = new Map(Object.entries(marks))
 
     this.spans = pageCounts.map((pageCount, chapterIndex) => ({ chapterIndex, pageCount }))
     this.addresses = []
