@@ -42,7 +42,7 @@ export default defineConfig({
       // checks; the auto-injected snippet only checks on navigation, which an
       // installed PWA may go a long time without.
       injectRegister: false,
-      includeAssets: ['favicon.svg'],
+      includeAssets: ['favicon-64.png'],
       manifest: {
         name: 'Book Reader',
         short_name: 'Reader',
@@ -60,7 +60,15 @@ export default defineConfig({
         icons: [
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+          // A separate file, not the same one relabelled: Android crops a
+          // maskable icon to the launcher's shape, so it needs its own inset
+          // artwork. Reusing the full-bleed icon clipped the page corner off.
+          {
+            src: 'icon-maskable-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable'
+          }
         ]
       },
       workbox: {
