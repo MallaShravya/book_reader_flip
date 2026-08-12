@@ -23,6 +23,39 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Reader" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!--
+      What a chat app or search engine shows when the link is shared. Without
+      these there is nothing to show, so scrapers guess from whatever icon
+      links they can find — which is why the shared preview kept showing an
+      old icon long after the app had a new one.
+
+      The URLs are absolute because they have to be: a scraper fetches them
+      out of context, and a root-relative path resolves against its own host,
+      not this one. They therefore name the deployed site rather than follow
+      BASE_PATH, which is right for the copy people are actually sent.
+    -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Book Reader" />
+    <meta property="og:title" content="Book Reader" />
+    <meta
+      property="og:description"
+      content="Read EPUB and PDF books with a real page-turn. Installs to your phone, works offline, and your books never leave your device."
+    />
+    <meta property="og:url" content="https://mallashravya.github.io/book_reader_flip/" />
+    <meta
+      property="og:image"
+      content="https://mallashravya.github.io/book_reader_flip/share-card.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A shelf of books" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="description"
+      content="Read EPUB and PDF books with a real page-turn. Installs to your phone, works offline, and your books never leave your device."
+    />
+
     <title>Book Reader</title>
   </head>
   <body>

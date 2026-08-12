@@ -117,11 +117,42 @@ function compose(size, fit, round) {
   return canvas
 }
 
+/**
+ * The image chat apps and social sites show when the link is shared.
+ *
+ * Wide rather than square, and 1200x630 specifically: below roughly 300px a
+ * scraper shows a thumbnail beside the text instead of a banner above it, and
+ * 1.91:1 is the shape they all crop toward.
+ */
+function shareCard(width = 1200, height = 630) {
+  const canvas = createCanvas(width, height)
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = BACKGROUND
+  ctx.fillRect(0, 0, width, height)
+
+  const scale = (height * 0.78) / artH
+  const w = Math.round(artW * scale)
+  const h = Math.round(artH * scale)
+  ctx.drawImage(
+    image,
+    minX,
+    minY,
+    artW,
+    artH,
+    Math.round((width - w) / 2),
+    Math.round((height - h) / 2),
+    w,
+    h
+  )
+  return canvas
+}
+
 for (const [file, canvas] of [
   ['public/icon-512.png', compose(512, FIT, true)],
   ['public/icon-192.png', compose(192, FIT, true)],
   ['public/favicon-64.png', compose(64, FIT, true)],
-  ['public/icon-maskable-512.png', compose(512, MASKABLE_FIT, false)]
+  ['public/icon-maskable-512.png', compose(512, MASKABLE_FIT, false)],
+  ['public/share-card.png', shareCard()]
 ]) {
   writeFileSync(file, canvas.toBuffer('image/png'))
   console.log(`[icon] wrote ${file}`)
