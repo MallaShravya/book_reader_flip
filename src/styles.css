@@ -269,6 +269,11 @@ button {
   display: grid;
   /* Three in-flow rows: top bar, book, scrubber. The turn bar is fixed. */
   grid-template-rows: auto minmax(0, 1fr) auto;
+  /*
+    One column, and it may never exceed the viewport. Without this the implicit
+    column is `auto`, which is free to grow to its items' max-content width.
+  */
+  grid-template-columns: minmax(0, 1fr);
   background: var(--bg);
   position: relative;
   min-height: 0;
@@ -457,6 +462,18 @@ button {
   padding: 0.6rem 0.9rem;
   background: var(--surface);
   flex-shrink: 0;
+  /*
+    Required, and not merely defensive: this bar is a grid item, and a grid
+    item's default `min-width: auto` is its *min-content* width. The ellipsis
+    on .reader-title shrinks the title during flex distribution inside this
+    bar, but it does not shrink this bar's min-content size — that still
+    counts the whole untruncated title. So a long book title made the bar
+    wider than the screen, which pushed the Aa button off the right edge and,
+    because .flip-stage is measured to size the book, built a page too wide to
+    fit and then centred it against the oversized stage — the page drifting
+    right with its sentence ends clipped.
+  */
+  min-width: 0;
 }
 
 .reader-bar .grow {
