@@ -53,8 +53,8 @@ export default defineConfig({
         display: 'standalone',
         orientation: 'portrait',
         // Relative rather than '/' so the same build installs correctly whether
-        // it is served from a domain root (Netlify) or a sub-path
-        // (github.io/<repo>/). These resolve against the manifest's own URL.
+        // it is served from a domain root or a sub-path (github.io/<repo>/,
+        // which is where it lives). These resolve against the manifest's own URL.
         start_url: '.',
         scope: '.',
         icons: [

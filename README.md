@@ -6,7 +6,7 @@ of the page and it peels over, the way a real book does.
 It installs to your phone's home screen and works completely offline. Your books are
 stored on your own device and never uploaded anywhere.
 
-### 👉 [Open the reader](https://elegant-croissant-06564f.netlify.app)
+### 👉 [Open the reader](https://mallashravya.github.io/book_reader_flip/)
 
 Open that on your phone, then add it to your home screen — see [below](#install-on-your-phone).
 
@@ -28,7 +28,7 @@ Open that on your phone, then add it to your home screen — see [below](#instal
 
 ### Install on your phone
 
-1. Open **[the reader](https://elegant-croissant-06564f.netlify.app)** in Chrome or Safari
+1. Open **[the reader](https://mallashravya.github.io/book_reader_flip/)** in Chrome or Safari
 2. Tap the browser menu and choose **Add to Home screen** (or **Install app**)
 3. Open it from the home screen — it runs full screen, like any other app
 
@@ -52,6 +52,8 @@ library deletes that copy; your original file is untouched.
 | Tap the left or right edge | Previous / next page |
 | **Previous** / **Next** buttons | Same page turn, without swiping |
 | Slider at the bottom | Jump anywhere in the book |
+| Full screen button, left of **Aa** | Hides everything but the page |
+| Tap the middle of the page | Brings the controls back in full screen |
 | Arrow keys | Turn pages on a desktop |
 
 ### Settings
@@ -95,10 +97,13 @@ npm install
 npm run build
 ```
 
-That produces a `dist/` folder. Upload it to any static host — [Netlify
-Drop](https://app.netlify.com/drop) is the quickest (drag the folder onto the page), and
-Vercel, Cloudflare Pages or GitHub Pages work equally well. The host gives you an
-`https://…` address to open on your phone.
+That produces a `dist/` folder. Upload it to any static host — GitHub Pages, Cloudflare
+Pages and Vercel all work. The host gives you an `https://…` address to open on your
+phone.
+
+This repository publishes itself to GitHub Pages: `.github/workflows/deploy.yml` builds
+and deploys on every push to `main`. Serving from a sub-path needs the build to know
+about it, which is what `BASE_PATH` in the workflow sets.
 
 The `https` matters. Over plain `http` the app still runs, but browsers will not offer to
 install it and it will not work offline.
