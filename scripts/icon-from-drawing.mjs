@@ -28,9 +28,23 @@ const TOLERANCE = 12
 const FIT = 0.86
 /**
  * The same for the maskable icon, which a launcher crops to its own shape.
- * Only the middle ~80% survives that, so the artwork has to sit inside it.
+ *
+ * The guaranteed safe zone is a circle of 80% diameter, and this drawing is
+ * tall and narrow — 362x628 — so what binds is its diagonal, not its height.
+ * Fitting the whole rectangle inside that circle caps it at 0.69, and 0.66
+ * was sitting right on that limit, which is why the installed icon looked
+ * small with a wide ring of ground around it.
+ *
+ * Past 0.69 the corners leave the circle. Those corners are the outer ends of
+ * the top and bottom shelves, so a strictly circular mask would shave them.
+ * Pixel's mask is a squircle, which reaches further into the corners than the
+ * spec promises, and the icon reads far better at this size than it did
+ * respecting a circle nothing actually uses.
+ *
+ * Override to taste: --fit=0.72
  */
-const MASKABLE_FIT = 0.66
+const fitArg = process.argv.find((a) => a.startsWith('--fit='))
+const MASKABLE_FIT = fitArg ? Number(fitArg.slice(6)) : 0.78
 
 /** Matches the corner radius both platforms round an icon to. */
 const RADIUS = 0.22
@@ -119,14 +133,16 @@ const art = createCanvas(artW, artH)
  * wallpaper on a home screen. Rounding is then pointless and skipped: there
  * is no ground to round off.
  */
-function compose(size, fit, background) {
+function compose(size, fit, background, round = false) {
   const canvas = createCanvas(size, size)
   const ctx = canvas.getContext('2d')
 
   if (background) {
-    ctx.save()
-    roundRectPath(ctx, 0, 0, size, size * RADIUS)
-    ctx.clip()
+    if (round) {
+      ctx.save()
+      roundRectPath(ctx, 0, 0, size, size * RADIUS)
+      ctx.clip()
+    }
     ctx.fillStyle = background
     ctx.fillRect(0, 0, size, size)
   }
@@ -138,7 +154,7 @@ function compose(size, fit, background) {
   const h = Math.round(artH * scale)
   ctx.drawImage(art, 0, 0, artW, artH, Math.round((size - w) / 2), Math.round((size - h) / 2), w, h)
 
-  if (background) ctx.restore()
+  if (background && round) ctx.restore()
   return canvas
 }
 
@@ -173,20 +189,23 @@ function shareCard(width = 1200, height = 630) {
 }
 
 /**
- * The app's background, used where a ground is unavoidable.
+ * The launcher tile's ground, where a ground is unavoidable.
  *
- * A maskable icon cannot be transparent: the launcher crops it to its own
- * shape and fills nothing in behind, so transparency there shows up as a
- * hole. It gets the app's own colour rather than the drawing's black, which
- * is what was asked to go.
+ * A maskable icon cannot be transparent: Android fills its whole tile, and
+ * transparency there shows as a hole rather than as nothing. So the only
+ * choice is which colour — and it is the drawing's own black, not the app's
+ * #2b2622, which at tile size just read as grey.
+ *
+ * Override: --tile=#101010
  */
-const APP_BG = '#2b2622'
+const tileArg = process.argv.find((a) => a.startsWith('--tile='))
+const TILE_BG = tileArg ? tileArg.slice(7) : '#000000'
 
 for (const [file, canvas] of [
   ['public/icon-512.png', compose(512, FIT, null)],
   ['public/icon-192.png', compose(192, FIT, null)],
   ['public/favicon-64.png', compose(64, FIT, null)],
-  ['public/icon-maskable-512.png', compose(512, MASKABLE_FIT, APP_BG)],
+  ['public/icon-maskable-512.png', compose(512, MASKABLE_FIT, TILE_BG)],
   ['public/share-card.png', shareCard()]
 ]) {
   writeFileSync(file, canvas.toBuffer('image/png'))
