@@ -48,6 +48,14 @@ const MAX_SCALE = 2
 const MAX_ZOOM_SCALE = 4
 /** Ignore pinches smaller than this; each change redraws the whole window. */
 const ZOOM_STEP = 0.5
+/**
+ * Most outline entries read at each level.
+ *
+ * Every one costs a destination lookup, and a reference PDF can carry
+ * thousands. Past this the contents list stops early rather than the book
+ * taking noticeably longer to open.
+ */
+const MAX_OUTLINE = 300
 
 export class PdfBook {
   private doc: PDFDocumentProxy | null = null
@@ -68,6 +76,72 @@ export class PdfBook {
     // the original is the cached library file and must stay intact.
     const data = bytes.slice(0)
     this.doc = await pdfjsLib.getDocument({ data, ...ASSET_OPTIONS }).promise
+  }
+
+  /**
+   * The document's own outline, resolved to page numbers.
+   *
+   * Easier than the EPUB equivalent, and for one reason: a PDF's pages are
+   * already our pages, so a destination resolves straight to a page index
+   * with nothing to measure and nothing to cache. Two levels are taken,
+   * matching what the contents list shows; anything deeper is left out rather
+   * than flattened, which would read as a chapter list with no shape.
+   *
+   * Many PDFs carry no outline at all, and those return nothing — the reader
+   * then shows no contents button, which is the honest answer.
+   */
+  async outline(): Promise<{ title: string; page: number; sections: { title: string; page: number }[] }[]> {
+    if (!this.doc) return []
+
+    let entries: Awaited<ReturnType<PDFDocumentProxy['getOutline']>>
+    try {
+      entries = await this.doc.getOutline()
+    } catch {
+      return []
+    }
+    if (!entries?.length) return []
+
+    const chapters = []
+    for (const entry of entries.slice(0, MAX_OUTLINE)) {
+      const page = await this.pageOfDestination(entry.dest)
+      if (page === null) continue
+
+      const sections = []
+      for (const child of (entry.items ?? []).slice(0, MAX_OUTLINE)) {
+        const childPage = await this.pageOfDestination(child.dest)
+        const title = child.title?.replace(/\s+/g, ' ').trim()
+        if (childPage === null || !title) continue
+        sections.push({ title, page: childPage })
+      }
+
+      chapters.push({
+        title: entry.title?.replace(/\s+/g, ' ').trim() || `Page ${page + 1}`,
+        page,
+        sections: sections.sort((a, b) => a.page - b.page)
+      })
+    }
+
+    return chapters
+  }
+
+  /**
+   * Turn an outline destination into a page index.
+   *
+   * A destination is either a name to look up or an explicit array whose
+   * first element is a reference to the page. Both routes throw on a
+   * malformed or dangling destination, which is common enough in the wild
+   * that the entry is simply dropped rather than the whole outline lost.
+   */
+  private async pageOfDestination(dest: string | unknown[] | null): Promise<number | null> {
+    if (!this.doc || dest === null || dest === undefined) return null
+    try {
+      const resolved = typeof dest === 'string' ? await this.doc.getDestination(dest) : dest
+      const ref = Array.isArray(resolved) ? resolved[0] : null
+      if (!ref || typeof ref !== 'object') return null
+      return await this.doc.getPageIndex(ref as Parameters<PDFDocumentProxy['getPageIndex']>[0])
+    } catch {
+      return null
+    }
   }
 
   /** First page as a data URL, for the library shelf. */

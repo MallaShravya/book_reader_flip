@@ -147,7 +147,7 @@ For the details behind these choices, see [`docs/implementation-notes.md`](docs/
 
 ## Current limitations
 
-- **No contents list for PDFs** — EPUBs have one; PDF outlines are not read yet
+- **No contents list for PDFs without bookmarks** — the list comes from the file's own outline, and many scanned PDFs have none
 - **PDF text can't be selected or searched** — PDF pages are drawn as images
 - **The back of a turning page shows the front's text**, mirrored, rather than being blank
 - **Rotating the device re-lays out the book**, which takes a moment on long titles

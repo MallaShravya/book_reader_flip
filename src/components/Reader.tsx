@@ -427,8 +427,12 @@ export default function Reader({
           await pdf.open(bytes)
           if (cancelled) return
           pages = pdf.createElements(layout)
-          // PDFs carry their own outline, which this does not read yet.
-          setContents([])
+
+          // The document's own outline. No measuring and nothing to cache: a
+          // PDF's pages are already the reader's pages.
+          const outline = await pdf.outline()
+          if (cancelled) return
+          setContents(outline)
         }
 
         if (cancelled || pages.length === 0) {
