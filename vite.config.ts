@@ -1,18 +1,47 @@
+import { execSync } from 'node:child_process'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+
+/** Where the build time is read from, whatever machine builds it. */
+const TIMEZONE = 'Asia/Kolkata'
 
 /**
  * Stamped into the bundle and shown in the library header. A PWA can serve a
  * cached build long after a redeploy, so being able to read the build time off
  * the screen turns "is this stale?" from guesswork into a glance.
+ *
+ * The time is pinned to one timezone rather than taken from the machine's own.
+ * This used to call getHours(), which is local time — correct while builds
+ * happened on a laptop, and quietly wrong from the day they moved to a GitHub
+ * runner, whose local time is UTC. The stamp then read five and a half hours
+ * behind the person looking at it, while appearing to be their clock.
+ *
+ * The commit is what actually answers "is this the build I just pushed?" —
+ * two deploys a minute apart are indistinguishable by time alone. It comes
+ * from git where git is available, and from the environment on a runner where
+ * the checkout may be shallow but the SHA is always to hand.
  */
 const BUILD_ID = (() => {
-  // Local time, not toISOString(): that returns UTC, so a build made at
-  // 01:24 IST displayed as "19:54" the previous day and looked wrong.
-  const d = new Date()
-  const p = (n: number): string => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+  const stamp = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: TIMEZONE,
+    dateStyle: 'short',
+    timeStyle: 'short'
+  }).format(new Date())
+
+  let commit = (process.env.GITHUB_SHA ?? '').slice(0, 7)
+  if (!commit) {
+    try {
+      commit = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString()
+        .trim()
+    } catch {
+      // A build from a tarball with no git and no CI. The time still stands.
+      commit = ''
+    }
+  }
+
+  return commit ? `${stamp} · ${commit}` : stamp
 })()
 
 /**
