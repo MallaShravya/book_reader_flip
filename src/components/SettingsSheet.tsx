@@ -77,7 +77,10 @@ export default function SettingsSheet({
   diagnostics
 }: Props): ReactNode {
   return (
-    <div className="sheet">
+    <>
+      {/* Tapping away from the sheet means the same as Done. */}
+      <div className="sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="sheet">
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.9rem' }}>
         <strong>Reading</strong>
         <button className="subtle" onClick={onClose}>
@@ -194,11 +197,6 @@ export default function SettingsSheet({
             Smoothest
           </button>
         </div>
-        <div className="hint">
-          Splits long chapters so each page carries less to animate. The
-          trade-off is a page break at every split, so some pages end early.
-          &quot;Off&quot; is the original behaviour.
-        </div>
       </div>
 
       <div className="field">
@@ -218,9 +216,6 @@ export default function SettingsSheet({
           >
             High
           </button>
-        </div>
-        <div className="hint">
-          How strongly the page shades as it curls. Low is softer and more paper-like.
         </div>
       </div>
 
@@ -251,6 +246,7 @@ export default function SettingsSheet({
           </pre>
         </details>
       )}
-    </div>
+      </div>
+    </>
   )
 }

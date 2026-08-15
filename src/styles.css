@@ -773,6 +773,24 @@ button {
 
 /* ---------------------------------------------------------------- settings */
 
+/*
+  Catches taps outside an open sheet, which close it.
+
+  Invisible on purpose. A dimmed backdrop is the usual signal that a panel is
+  modal, but this one sits over a page someone is reading and darkening it
+  would be the most conspicuous thing on screen for the sake of a control they
+  are about to dismiss anyway.
+
+  It sits one below the sheet, which is above the loading overlay, so it also
+  covers that — a re-layout triggered from the sheet must not leave the tap
+  target behind the progress screen.
+*/
+.sheet-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 39;
+}
+
 .sheet {
   position: absolute;
   left: 0;

@@ -60,10 +60,27 @@ export default function ContentsSheet({ chapters, page, onSelect, onClose }: Pro
     })
   }
 
-  // Open on the chapter being read. Three hundred chapters in, the top of the
-  // list is not where anyone wants to start looking.
+  /*
+   * Open on the chapter being read. Three hundred chapters in, the top of the
+   * list is not where anyone wants to start looking.
+   *
+   * scrollTop rather than scrollIntoView, which was the first attempt and
+   * shifted the whole screen: it scrolls *every* scrollable ancestor to bring
+   * the element into view, so opening the sheet jolted the reader behind it
+   * before the layout settled back. Setting the list's own scroll moves the
+   * list and nothing else.
+   *
+   * Measured from rects rather than offsetTop, which is relative to whichever
+   * ancestor happens to be positioned — here the sheet, not the list, so it
+   * would carry the header's height along with it.
+   */
   useEffect(() => {
-    listRef.current?.querySelector('[data-current="true"]')?.scrollIntoView({ block: 'center' })
+    const list = listRef.current
+    const marker = list?.querySelector('[data-current="true"]') as HTMLElement | null
+    if (!list || !marker) return
+
+    const offset = marker.getBoundingClientRect().top - list.getBoundingClientRect().top
+    list.scrollTop += offset - (list.clientHeight - marker.offsetHeight) / 2
   }, [])
 
   /** The section you are in, within an open chapter. */
@@ -76,7 +93,10 @@ export default function ContentsSheet({ chapters, page, onSelect, onClose }: Pro
   }
 
   return (
-    <div className="sheet sheet-contents">
+    <>
+      {/* Tapping away from the sheet means the same as Done. */}
+      <div className="sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="sheet sheet-contents">
       <div className="sheet-head">
         <strong>Contents</strong>
         <button className="subtle" onClick={onClose}>
@@ -159,6 +179,7 @@ export default function ContentsSheet({ chapters, page, onSelect, onClose }: Pro
           )
         })}
       </div>
-    </div>
+      </div>
+    </>
   )
 }
