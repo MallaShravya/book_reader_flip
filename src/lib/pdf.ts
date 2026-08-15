@@ -38,6 +38,16 @@ const ASSET_OPTIONS = {
 
 /** Cap the backing-store scale; phones have high DPR and finite memory. */
 const MAX_SCALE = 2
+/**
+ * The same cap once magnification is taken into account.
+ *
+ * A page rendered at device pixel ratio times a four-times pinch would be
+ * sixteen times the area, several of them at once. This is the ceiling on
+ * sharpness, past which the pinch simply enlarges what is already drawn.
+ */
+const MAX_ZOOM_SCALE = 4
+/** Ignore pinches smaller than this; each change redraws the whole window. */
+const ZOOM_STEP = 0.5
 
 export class PdfBook {
   private doc: PDFDocumentProxy | null = null
@@ -45,6 +55,9 @@ export class PdfBook {
   private rendered = new Set<number>()
   private tasks = new Map<number, RenderTask>()
   private layout: PageLayout = { width: 0, height: 0, padding: 0 }
+  /** Current magnification, and the page the window is centred on. */
+  private zoom = 1
+  private centre = 0
 
   get pageCount(): number {
     return this.doc?.numPages ?? 0
@@ -102,7 +115,39 @@ export class PdfBook {
    * equal, flipping back and forth across the edge cancelled and restarted the
    * same renders continuously, which showed up as stutter.
    */
+  /**
+   * Redraw the visible pages for a new magnification.
+   *
+   * A PDF page is a bitmap sized to fit the leaf, so a pinch enlarges its
+   * pixels rather than revealing any more of it. Raising the backing-store
+   * scale and drawing again is what actually makes the text sharper.
+   *
+   * Stepped rather than continuous: every change throws away the window and
+   * redraws it, which is far too much work to do on each frame of a pinch.
+   */
+  setZoom(zoom: number): void {
+    const next = Math.max(1, Math.min(zoom, MAX_ZOOM_SCALE))
+    if (Math.abs(next - this.zoom) < ZOOM_STEP && next !== 1) return
+    if (next === this.zoom) return
+    this.zoom = next
+
+    for (const i of [...this.rendered]) {
+      this.tasks.get(i)?.cancel()
+      this.tasks.delete(i)
+      const canvas = this.elements[i].querySelector('canvas')
+      if (canvas) {
+        canvas.width = 0
+        canvas.height = 0
+      }
+      this.elements[i].innerHTML = ''
+      this.rendered.delete(i)
+    }
+
+    this.renderAround(this.centre)
+  }
+
   renderAround(centre: number, radius = 3, releaseRadius = 6): void {
+    this.centre = centre
     const wanted = new Set<number>()
     for (let i = centre - radius; i <= centre + radius; i++) {
       if (i >= 0 && i < this.elements.length) wanted.add(i)
@@ -150,7 +195,9 @@ export class PdfBook {
 
       const base = page.getViewport({ scale: 1 })
       const fit = Math.min(this.layout.width / base.width, this.layout.height / base.height)
-      const dpr = Math.min(window.devicePixelRatio || 1, MAX_SCALE)
+      // Magnification multiplies the backing store, not the CSS size: the
+      // canvas keeps the leaf's dimensions and simply holds more detail.
+      const dpr = Math.min((window.devicePixelRatio || 1) * this.zoom, MAX_SCALE * MAX_ZOOM_SCALE)
       const viewport = page.getViewport({ scale: fit * dpr })
 
       const canvas = document.createElement('canvas')

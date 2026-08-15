@@ -54,6 +54,8 @@ library deletes that copy; your original file is untouched.
 | Slider at the bottom | Jump anywhere in the book |
 | Box beside the slider | Type a page number to jump to it |
 | Contents button, top right | Chapters, and the headings within them |
+| Pinch | Magnify the page, then drag to move around it |
+| Double-tap while magnified | Back to the full page |
 | Full screen button, left of **Aa** | Hides everything but the page |
 | Tap the middle of the page | Brings the controls back in full screen |
 | Arrow keys | Turn pages on a desktop |

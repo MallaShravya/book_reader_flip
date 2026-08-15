@@ -51,6 +51,14 @@ export const DEFAULT_THRESHOLDS: GestureThresholds = {
   completeMs: 150
 }
 
+/** How the page is currently magnified, and where it has been dragged to. */
+export interface ZoomState {
+  scale: number
+  /** Pan in CSS pixels, in the parent's space, about the element's centre. */
+  x: number
+  y: number
+}
+
 export interface GestureHandlers {
   /**
    * A tap in the inert middle zone — neither turn zone.
@@ -59,7 +67,14 @@ export interface GestureHandlers {
    * nothing else on the page is tappable.
    */
   onCenterTap?: () => void
+  /** Fires whenever the pinch or the pan moves. */
+  onZoom?: (state: ZoomState) => void
 }
+
+/** Furthest in a pinch may go. Past this a PDF is grain and text is a wall. */
+const MAX_ZOOM = 4
+/** Two taps closer together than this, while zoomed, mean "put it back". */
+const DOUBLE_TAP_MS = 300
 
 interface Point {
   x: number
@@ -77,7 +92,7 @@ export function attachFlipGestures(
   flip: PageFlip,
   thresholds: GestureThresholds = DEFAULT_THRESHOLDS,
   handlers: GestureHandlers = {}
-): () => void {
+): { detach: () => void; resetZoom: () => void } {
   const surface = (mount.querySelector('.stf__block') as HTMLElement | null) ?? mount
 
   let pointerId: number | null = null
@@ -87,6 +102,121 @@ export function attachFlipGestures(
   let completing = false
   /** null until the drag is long enough to say which way it is going. */
   let forward: boolean | null = null
+
+  /*
+   * Zoom lives here rather than in its own module, because input has one
+   * owner and this is it. A pinch has to be able to call off a fold that is
+   * already under way, and a drag has to know whether it is turning a page or
+   * moving a magnified one — neither is answerable from two modules that only
+   * see their own events.
+   */
+  let zoom: ZoomState = { scale: 1, x: 0, y: 0 }
+  /** Every finger currently down, in client coordinates. */
+  const pointers = new Map<number, Point>()
+  /** Set while two fingers are down. */
+  let pinch: { distance: number; anchor: Point; from: ZoomState; centre: Point } | null = null
+  /** Set while one finger is dragging a magnified page. */
+  let panning: { from: Point; origin: Point; at: number } | null = null
+  let lastTapAt = 0
+
+  const isZoomed = (): boolean => zoom.scale > 1.01
+
+  const emitZoom = (): void => handlers.onZoom?.({ ...zoom })
+
+  /**
+   * Keep the magnified page overlapping the stage.
+   *
+   * The transform scales about the element's centre, so the room to move is
+   * symmetric: half the overflow in each direction, and none at all while the
+   * page still fits.
+   */
+  const clampPan = (): void => {
+    const stage = mount.parentElement
+    if (!stage) return
+    const spareX = Math.max(0, (mount.offsetWidth * zoom.scale - stage.clientWidth) / 2)
+    const spareY = Math.max(0, (mount.offsetHeight * zoom.scale - stage.clientHeight) / 2)
+    zoom.x = Math.max(-spareX, Math.min(spareX, zoom.x))
+    zoom.y = Math.max(-spareY, Math.min(spareY, zoom.y))
+  }
+
+  const setZoom = (next: ZoomState): void => {
+    zoom = next
+    if (!isZoomed()) {
+      zoom.scale = 1
+      zoom.x = 0
+      zoom.y = 0
+    } else {
+      clampPan()
+    }
+    emitZoom()
+  }
+
+  const centreOf = (points: Point[]): Point => ({
+    x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+    y: points.reduce((sum, p) => sum + p.y, 0) / points.length
+  })
+
+  const spread = (a: Point, b: Point): number => Math.hypot(a.x - b.x, a.y - b.y)
+
+  /** Abandon any fold in progress, so a second finger cannot leave one stuck. */
+  const abandonFold = (): void => {
+    if (pointerId === null) return
+    stopPump()
+    if (!completing && forward !== null) flip.userStop(fed ?? last, false)
+    pointerId = null
+    forward = null
+    smoothed = null
+    fed = null
+  }
+
+  const beginPinch = (): void => {
+    const [a, b] = [...pointers.values()]
+    const rect = mount.getBoundingClientRect()
+    pinch = {
+      distance: spread(a, b),
+      anchor: centreOf([a, b]),
+      from: { ...zoom },
+      /*
+       * The element's centre with the transform taken back off. Scaling about
+       * the centre does not move it, so subtracting the current pan is enough
+       * to recover where the page sits before any of this.
+       */
+      centre: {
+        x: rect.left + rect.width / 2 - zoom.x,
+        y: rect.top + rect.height / 2 - zoom.y
+      }
+    }
+    abandonFold()
+  }
+
+  const movePinch = (): void => {
+    if (!pinch || pointers.size < 2) return
+    const [a, b] = [...pointers.values()]
+    const distance = spread(a, b)
+    if (pinch.distance <= 0) return
+
+    const scale = Math.max(1, Math.min(MAX_ZOOM, pinch.from.scale * (distance / pinch.distance)))
+
+    /*
+     * Hold the point between the fingers still.
+     *
+     * Where that point sits on the page is worked out once, in the page's own
+     * coordinates, and the pan is then whatever puts it back under the fingers
+     * at the new scale. Without this the page slides out from under the pinch
+     * and magnifying anything but the middle becomes a chase.
+     */
+    const onPage = {
+      x: (pinch.anchor.x - pinch.centre.x - pinch.from.x) / pinch.from.scale,
+      y: (pinch.anchor.y - pinch.centre.y - pinch.from.y) / pinch.from.scale
+    }
+    const now = centreOf([a, b])
+
+    setZoom({
+      scale,
+      x: now.x - pinch.centre.x - scale * onPage.x,
+      y: now.y - pinch.centre.y - scale * onPage.y
+    })
+  }
 
   /*
    * The fold is driven once per frame from a smoothed point, not straight from
@@ -222,10 +352,27 @@ export function attachFlipGestures(
   }
 
   const onPointerDown = (e: PointerEvent): void => {
-    if (pointerId !== null || completing) return
     // Let links and buttons inside a page behave normally.
     const tag = (e.target as HTMLElement).tagName?.toLowerCase()
     if (tag === 'a' || tag === 'button') return
+
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+    // A second finger always means a pinch, whatever the first was doing.
+    if (pointers.size === 2) {
+      beginPinch()
+      return
+    }
+    if (pointers.size > 2) return
+
+    if (isZoomed()) {
+      // One finger on a magnified page moves the page rather than folding it.
+      panning = { from: { x: e.clientX, y: e.clientY }, origin: { x: e.clientX, y: e.clientY }, at: Date.now() }
+      surface.setPointerCapture?.(e.pointerId)
+      return
+    }
+
+    if (pointerId !== null || completing) return
 
     pointerId = e.pointerId
     start = last = toLocal(e.clientX, e.clientY)
@@ -240,6 +387,23 @@ export function attachFlipGestures(
   }
 
   const onPointerMove = (e: PointerEvent): void => {
+    if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+    if (pinch) {
+      movePinch()
+      return
+    }
+
+    if (panning) {
+      setZoom({
+        scale: zoom.scale,
+        x: zoom.x + (e.clientX - panning.from.x),
+        y: zoom.y + (e.clientY - panning.from.y)
+      })
+      panning.from = { x: e.clientX, y: e.clientY }
+      return
+    }
+
     if (pointerId !== e.pointerId || completing) return
     last = toLocal(e.clientX, e.clientY)
 
@@ -290,6 +454,46 @@ export function attachFlipGestures(
   }
 
   const onPointerUp = (e: PointerEvent): void => {
+    pointers.delete(e.pointerId)
+
+    if (pinch) {
+      if (pointers.size >= 2) return
+      pinch = null
+      // A finger still down when the pinch ends carries on as a pan, so the
+      // page does not jump when one of two fingers lifts.
+      const remaining = [...pointers.values()][0]
+      panning =
+        remaining && isZoomed()
+          ? { from: { ...remaining }, origin: { ...remaining }, at: Date.now() }
+          : null
+      return
+    }
+
+    if (panning) {
+      const moved = Math.hypot(e.clientX - panning.origin.x, e.clientY - panning.origin.y)
+      const quick = Date.now() - panning.at < DOUBLE_TAP_MS
+      panning = null
+      surface.releasePointerCapture?.(e.pointerId)
+
+      /*
+       * Two quick taps put the page back.
+       *
+       * Only while zoomed, which is what lets the single tap keep working
+       * everywhere else without waiting to see whether a second one follows.
+       * A reader that hesitates before hiding its bars feels broken.
+       */
+      if (moved < 8 && quick) {
+        const now = Date.now()
+        if (now - lastTapAt < DOUBLE_TAP_MS) {
+          setZoom({ scale: 1, x: 0, y: 0 })
+          lastTapAt = 0
+        } else {
+          lastTapAt = now
+        }
+      }
+      return
+    }
+
     if (pointerId !== e.pointerId) return
     pointerId = null
     stopPump()
@@ -306,6 +510,7 @@ export function attachFlipGestures(
     if (forward === null) {
       const rect = surface.getBoundingClientRect()
       const relative = end.x / rect.width
+      if (isZoomed()) return
       if (relative <= thresholds.tapZone) flip.flipPrev()
       else if (relative >= 1 - thresholds.tapZone) flip.flipNext()
       // The middle turns no page. It stays inert unless someone asks for it,
@@ -348,10 +553,22 @@ export function attachFlipGestures(
   }
 
   const onPointerCancel = (e: PointerEvent): void => {
+    pointers.delete(e.pointerId)
+    if (pointers.size < 2) pinch = null
+    panning = null
+
     if (pointerId !== e.pointerId) return
     pointerId = null
     stopPump()
     if (!completing) flip.userStop(fed ?? last, false)
+  }
+
+  /** Put the page back to unmagnified — used when the reader turns a page. */
+  const resetZoom = (): void => {
+    if (!isZoomed()) return
+    pinch = null
+    panning = null
+    setZoom({ scale: 1, x: 0, y: 0 })
   }
 
   surface.addEventListener('pointerdown', onPointerDown)
@@ -359,7 +576,7 @@ export function attachFlipGestures(
   surface.addEventListener('pointerup', onPointerUp)
   surface.addEventListener('pointercancel', onPointerCancel)
 
-  return () => {
+  const detach = (): void => {
     // The pump holds a reference to a flipbook that teardown is about to
     // destroy, so it has to stop with the listeners.
     stopPump()
@@ -368,6 +585,8 @@ export function attachFlipGestures(
     surface.removeEventListener('pointerup', onPointerUp)
     surface.removeEventListener('pointercancel', onPointerCancel)
   }
+
+  return { detach, resetZoom }
 }
 
 function rectWidth(el: HTMLElement): number {

@@ -8,7 +8,7 @@ import { EpubPaginator } from '../lib/paginate'
 import { chunkChapters } from '../lib/chunk'
 import { PdfBook } from '../lib/pdf'
 import { computeLayout, createFlipbook } from '../lib/flipbook'
-import { attachFlipGestures, DEFAULT_THRESHOLDS } from '../lib/gestures'
+import { attachFlipGestures, DEFAULT_THRESHOLDS, type ZoomState } from '../lib/gestures'
 import {
   enterFullscreen,
   exitFullscreen,
@@ -73,7 +73,7 @@ export default function Reader({
   const paginatorRef = useRef<EpubPaginator | null>(null)
   const pdfRef = useRef<PdfBook | null>(null)
   const parsedRef = useRef<ParsedEpub | null>(null)
-  const detachGesturesRef = useRef<(() => void) | null>(null)
+  const gesturesRef = useRef<{ detach: () => void; resetZoom: () => void } | null>(null)
   const chunkStatsRef = useRef<{ chapters: number; chunks: number } | null>(null)
   const startPageRef = useRef(book.lastPage)
   /**
@@ -262,8 +262,8 @@ export default function Reader({
     let cancelled = false
 
     const teardown = (): void => {
-      detachGesturesRef.current?.()
-      detachGesturesRef.current = null
+      gesturesRef.current?.detach()
+      gesturesRef.current = null
       flipRef.current?.destroy()
       flipRef.current = null
       paginatorRef.current?.destroy()
@@ -468,6 +468,9 @@ export default function Reader({
           flippingTime: layoutSettings.flippingTime,
           startPage,
           onFlip: (index) => {
+            // A new page at the old magnification would arrive already
+            // scrolled off to wherever the last one had been dragged.
+            gesturesRef.current?.resetZoom()
             setPage(index)
             startPageRef.current = index
             // Taken from the live paginator, so it describes this layout's
@@ -482,13 +485,13 @@ export default function Reader({
 
         // Drive the fold ourselves — see lib/gestures.ts for why the
         // library's own input handling is switched off.
-        detachGesturesRef.current = attachFlipGestures(
+        gesturesRef.current = attachFlipGestures(
           mount,
           flipRef.current,
           DEFAULT_THRESHOLDS,
           // Stable across renders, so this does not drag the build effect
           // into re-running every time the bars are toggled.
-          { onCenterTap }
+          { onCenterTap, onZoom }
         )
 
         /*
@@ -612,11 +615,36 @@ export default function Reader({
   const jumpTo = useCallback((target: number) => {
     const flip = flipRef.current
     if (!flip) return
+    gesturesRef.current?.resetZoom()
     const clamped = Math.max(0, Math.min(target, flip.getPageCount() - 1))
     paginatorRef.current?.hydrateAround(clamped)
     pdfRef.current?.renderAround(clamped)
     flip.turnToPage(clamped)
     setPage(clamped)
+  }, [])
+
+  /**
+   * Apply a pinch to the page.
+   *
+   * Written straight to the element rather than held in React state: this
+   * fires on every frame of a pinch, and a re-render per frame would put the
+   * component's reconciliation between the finger and the page.
+   *
+   * The flip container is the thing transformed, not the pages inside it —
+   * StPageFlip rewrites each page's cssText on every draw, so anything set
+   * there is gone by the next frame.
+   */
+  const onZoom = useCallback((state: ZoomState): void => {
+    const mount = mountRef.current
+    if (!mount) return
+    mount.style.transform =
+      state.scale === 1
+        ? ''
+        : `translate(${state.x}px, ${state.y}px) scale(${state.scale})`
+
+    // A PDF page is a bitmap rendered to fit, so magnifying it magnifies its
+    // pixels. Ask for a sharper one; an EPUB page is text and scales for free.
+    pdfRef.current?.setZoom(state.scale)
   }, [])
 
   /*
