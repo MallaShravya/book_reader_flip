@@ -39,8 +39,15 @@ It works as an ordinary browser tab too, but offline reading requires installing
 Tap **Add books** and pick any `.epub` or `.pdf` files from your device. You can add
 several at once, or drag files onto the window on a desktop.
 
-Books are copied into the app so they stay available offline. Removing a book from the
-library deletes that copy; your original file is untouched.
+Books are copied into the app so they stay available offline.
+
+**Continue reading** across the top holds what you last had open, in the order you read
+them. Everything sits on the shelf below, A–Z by default — switch it to **Added** with
+the control beside the heading, and the choice is remembered.
+
+**Press and hold a book** to rename or remove it. Titles are guessed from the file when
+it is imported and are often wrong, so renaming corrects the library; removing deletes
+the app's copy and leaves your original file untouched.
 
 ### Reading controls
 

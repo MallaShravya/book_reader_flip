@@ -73,8 +73,18 @@ export const GLOSS_OPACITY: Record<Gloss, number> = {
   low: 0.35
 }
 
+/**
+ * How the main shelf is ordered.
+ *
+ * The recently-read row above it is always in reading order, so this only
+ * governs the full list beneath.
+ */
+export type LibrarySort = 'title' | 'added'
+
 export interface ReaderSettings {
   theme: Theme
+  /** Ordering of the main shelf. */
+  librarySort: LibrarySort
   /** How dark the text sits within the chosen theme. */
   ink: Ink
   /** Shading intensity during a page turn. */
@@ -100,6 +110,7 @@ export interface ReaderSettings {
 
 export const DEFAULT_SETTINGS: ReaderSettings = {
   theme: 'sepia',
+  librarySort: 'title',
   ink: 'normal',
   gloss: 'low',
   fontSize: 18,

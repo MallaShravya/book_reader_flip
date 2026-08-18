@@ -76,8 +76,8 @@ export default defineConfig({
         name: 'Book Reader',
         short_name: 'Reader',
         description: 'Read EPUB and PDF books with a real page-turn.',
-        theme_color: '#2b2622',
-        background_color: '#2b2622',
+        theme_color: '#221a12',
+        background_color: '#221a12',
         // Fills the screen like a native app once installed to the home screen.
         display: 'standalone',
         orientation: 'portrait',

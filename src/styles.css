@@ -7,12 +7,12 @@
 */
 
 :root {
-  --bg: #2b2622;
-  --surface: #37312c;
-  --surface-2: #443c36;
+  --bg: #221a12;
+  --surface: #2e2418;
+  --surface-2: #3d3021;
   --text: #efe6da;
-  --text-dim: #b3a596;
-  --text-faint: #7d7268;
+  --text-dim: #bcab95;
+  --text-faint: #8a7a64;
   --accent: #c98b4b;
   --danger: #b4553f;
   --radius: 10px;
@@ -154,18 +154,18 @@ button {
   font-size: 0.82rem;
 }
 
-.import-zone {
-  margin: 1.1rem 0 1.6rem;
-  border: 1.5px dashed var(--surface-2);
-  border-radius: var(--radius);
-  padding: 1.6rem 1rem;
+.library-actions {
+  margin: 1rem 0 0.4rem;
   text-align: center;
-  transition: border-color 0.15s, background 0.15s;
 }
 
-.import-zone.dragging {
-  border-color: var(--accent);
-  background: rgba(201, 139, 75, 0.08);
+/*
+  Dragging a file over the library.
+  Inset so the outline is not clipped by the container's own scrolling.
+*/
+.library.dragging {
+  outline: 2px dashed var(--accent);
+  outline-offset: -8px;
 }
 
 .btn {
@@ -187,10 +187,391 @@ button {
   transform: translateY(1px);
 }
 
+.library-section {
+  margin-top: 1.6rem;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.7rem;
+}
+
+.section-head h2 {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* The sort control sits beside a heading, so it shrinks to its labels
+   rather than stretching the way the ones in the settings sheet do. */
+.seg-compact button {
+  flex: 0 0 auto;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.75rem;
+}
+
+/*
+  One row, scrolled sideways.
+
+  `scroll-snap` so a flick settles on a cover rather than between two.
+
+  Deliberately not bled to the screen edges with negative margins: that reads
+  as continuing past them, but it also starts the row a step left of the
+  heading above it and the shelf below, and the misalignment is more
+  noticeable than the effect is worth.
+*/
+.recent-row {
+  display: flex;
+  gap: 0.9rem;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  padding-bottom: 0.3rem;
+  scrollbar-width: none;
+}
+
+.recent-row::-webkit-scrollbar {
+  display: none;
+}
+
+.recent-book {
+  flex: 0 0 108px;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
 .shelf {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
-  gap: 1rem;
+  /*
+    Four to a row, fixed rather than auto-filled. Auto-fill sized columns by a
+    minimum width, which gave two fat books on a phone; a shelf wants several
+    slim spines, and four is what fits a handset without the titles becoming
+    unreadable.
+  */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /*
+    Row and column gaps differ on purpose. The column gap is the timber
+    between compartments, so it is an upright's width; the row gap is only
+    the joint between one shelf and the next book above it, and wants to be
+    as small as it can be — the space above the books is dead space, and a
+    bookcase packs its shelves close.
+  */
+  gap: 4px 10px;
+}
+
+/*
+  The shelf, as furniture.
+
+  The wood is a photograph of walnut, cut three ways from one seamless tile:
+  the back panel as shot, the shelves turned a quarter turn so the grain runs
+  along them, the uprights squeezed across. One timber, differing only in how
+  it was cut and how the light finds it — which is what a bookcase is.
+
+  Earlier versions drew the grain with CSS gradients and then with procedural
+  noise. Both were regular in a way timber is not: the eye finds the repeat
+  and stops seeing wood.
+
+  The edges are exposed brighter than the back, because they face the light
+  the back panel is in shadow from. At one exposure the whole thing reads as a
+  single flat surface.
+*/
+.shelf-wood {
+  /*
+    How the grain is scaled on each surface.
+
+    For the edge pieces this is one number rather than two because the cross
+    axis is already fixed — a shelf's texture is stretched to its 17px depth
+    whatever happens — so the value below sets the length of the tile alone,
+    and with it how far the grain is drawn out.
+
+    Which makes small values a trap. Scaling down packs more repeats into the
+    same board, and past a point the repeat is the most obvious thing on it:
+    the same knot arriving four times reads as wallpaper, not timber. So these
+    are stretched *past* their natural size instead — 360px against a natural
+    256px, 300px against 213px — which draws the grain into long streaks and
+    leaves barely more than one repeat per board to notice.
+
+    The panel is left near its own scale: it is a large surface, and a whole
+    plank is what should be visible on it.
+  */
+  --grain-panel: 220px;
+  --grain-board: 360px;
+  --grain-upright: 300px;
+
+  /*
+    A wash of the Add books colour over every timber surface, so the shelf and
+    the one bright control in the library belong to the same palette. The
+    photograph is a cooler, redder walnut than the button's amber, and side by
+    side they read as two different woods.
+
+    Blended with `color`, not laid over as a translucent sheet. That takes hue
+    and saturation from the wash and luminance from the photograph, so the
+    grain keeps every bit of its contrast and only its colour moves. A plain
+    overlay would have flattened the figure at the same time, which is the
+    thing worth keeping.
+  */
+  --wash: rgb(201 139 75 / 38%);
+
+  /*
+    Runs off both edges of the screen.
+
+    This is most of what makes it read as furniture rather than a card with a
+    wooden picture on it: a bookcase you can see the ends of is a box, and one
+    that leaves the frame carries on in the mind. The negative margins undo
+    the library's own padding exactly.
+  */
+  position: relative;
+  margin: 0 -1rem;
+  /* Top padding clears the carcass top drawn below; the rest is breathing room. */
+  padding: 21px 10px 1rem;
+  /* The shelves overhang their compartments, so trim them at the case sides. */
+  overflow: hidden;
+  background-color: #241a12;
+  background-image: linear-gradient(var(--wash), var(--wash)), url('/panel.png');
+  background-size: auto, var(--grain-panel) auto;
+  background-repeat: repeat, repeat;
+  background-blend-mode: color, normal;
+  /*
+    The case's own shadow, from the same light: strongest at the top, where
+    the carcass overhangs, and only a suggestion at the foot. The sides are
+    open and continue, so they cast nothing.
+  */
+  box-shadow:
+    inset 0 10px 14px -6px rgba(0, 0, 0, 0.7),
+    inset 0 -8px 12px -6px rgba(0, 0, 0, 0.4);
+}
+
+/*
+  One plank, under one book, meeting its neighbours across the grid gap.
+
+  Thick enough to look like it could hold a book: a 9px strip read as a drawn
+  line rather than a piece of timber, whatever was shaded onto it. The
+  texture's own lit top edge and dark underside do most of the work, and the
+  cast shadow beneath puts air between the board and the panel behind it.
+*/
+/*
+  One compartment, holding one book.
+
+  Recessed rather than flat: the inner shadow at the top and left is the whole
+  illusion, since a niche is defined by the light that does not reach into it.
+  The wood between compartments is the frame, so the grid gap is the timber.
+*/
+/*
+  One compartment, holding one book.
+
+  No background and no shadow of its own. The uprights and the shelf are what
+  make a compartment — the same way they do in a real bookcase — and painting
+  a shaded rectangle behind each book as well only produced a dark oblong that
+  fought the joinery it sat behind.
+*/
+.shelf .book {
+  position: relative;
+  /* Bottom padding is zero: the shelf is the floor of the compartment. */
+  padding: 3px 6px 0;
+  /* No gap: the book stands *on* the shelf, and any space would float it. */
+  gap: 0;
+}
+
+
+/*
+  The upright between compartments: the same plank as the shelf, stood on end.
+
+  Drawn into the gap to the right of every niche, including the last in a row
+  — which puts an upright hard against the screen edge and is exactly right,
+  since the case is meant to carry on past it.
+
+  It is the rotated texture rather than a second generated one, so the two
+  really are the same timber; a near-match is the sort of thing the eye
+  catches without being able to say why.
+*/
+/*
+  The top of the carcass.
+
+  Every book stands on a shelf, so the top row needs one over it or the case
+  reads as open at the top — a set of shelves with nothing holding them.
+
+  Edge to edge and above everything, including the uprights, which are housed
+  into it exactly as they are into the shelves below.
+*/
+.shelf-wood::before {
+  content: '';
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 17px;
+  background-color: #4b301a;
+  background-image: linear-gradient(var(--wash), var(--wash)), url('/board.png');
+  background-repeat: repeat, repeat-x;
+  background-position: center, center;
+  background-size: auto, var(--grain-board) 100%;
+  background-blend-mode: color, normal;
+  box-shadow:
+    2px 4px 5px -2px rgba(0, 0, 0, 0.65),
+    inset 0 1px 0 rgba(255, 236, 205, 0.4),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5);
+}
+
+/*
+  The case's left side: one board down the whole height.
+
+  The uprights are drawn to the right of each compartment, which gives one in
+  every gap and one at the right-hand edge, and nothing at all on the left.
+  This is that missing side.
+
+  It is ::after, not ::before, and that matters — `.shelf` and `.shelf-wood`
+  are the same element, so putting this on `.shelf::before` made it and the
+  carcass top the *same pseudo-element*. The later rule won for the properties
+  it set and inherited the rest, leaving one 10x17 stub in the corner: the top
+  board gone, and no side board either.
+*/
+.shelf-wood::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  /* Starts under the carcass top, which is 17px deep. */
+  top: 17px;
+  bottom: 0;
+  left: 0;
+  width: 10px;
+  background-color: #362312;
+  background-image: linear-gradient(var(--wash), var(--wash)), url('/upright.png');
+  background-repeat: repeat, repeat-y;
+  background-position: center, center;
+  background-size: auto, 100% var(--grain-upright);
+  background-blend-mode: color, normal;
+  box-shadow:
+    inset 1px 0 0 rgba(255, 232, 198, 0.26),
+    2px 0 5px -2px rgba(0, 0, 0, 0.6);
+}
+
+/*
+  The upright between compartments.
+
+  Flat, and markedly lighter than the panel behind it. The grained version was
+  invisible for a measurable reason rather than a stylistic one: its mean
+  colour was 43,29,19 against a back panel of 46,31,19. The same timber at the
+  same tone, so nothing separated them, however the edges were shaded.
+
+  It runs a row's gap past the cell top and bottom, so the uprights carry on
+  through and read as full-height dividers rather than one stub per book.
+*/
+.shelf .book::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  top: -4px;
+  bottom: -4px;
+  right: -10px;
+  width: 10px;
+  background-color: #362312;
+  background-image: linear-gradient(var(--wash), var(--wash)), url('/upright.png');
+  background-repeat: repeat, repeat-y;
+  background-position: center, center;
+  background-size: auto, 100% var(--grain-upright);
+  background-blend-mode: color, normal;
+  /* Light comes from the upper left, so the lit edge is the left one. */
+  box-shadow:
+    inset 1px 0 0 rgba(255, 232, 198, 0.26),
+    2px 0 5px -2px rgba(0, 0, 0, 0.6);
+}
+
+/*
+  An empty compartment. It has no content to give it height, so the cover's
+  proportions are reserved instead — the same 2:3 every book stands in, which
+  keeps an empty row exactly as tall as a full one.
+*/
+.book-empty::before {
+  content: '';
+  display: block;
+  padding-bottom: 150%;
+}
+
+/*
+  The shelf itself: a deep board carrying the book's name, running in front of
+  the uprights.
+
+  It reaches past the compartment on both sides — 6px of padding plus the
+  14px gap — so it crosses the divider and the two meet the way real joinery
+  does: the shelf runs through, the uprights sit between. Neighbouring boards
+  overlap in the middle of each upright, which costs nothing, since they are
+  the same texture at the same height.
+
+  z-index is what settles which is in front. Without it the uprights, painted
+  later in the document, sat over the shelves and the whole thing read
+  inside-out.
+*/
+/*
+  The shelf, carrying the book's name.
+
+  Flat rather than grained, for the same reason as the uprights and one more:
+  a title set in 7px type over wood figure is unreadable, and the figure was
+  never going to survive being that small anyway.
+
+  It runs the whole width of the case rather than stopping at each
+  compartment: 6px of padding plus the 10px gap reaches its neighbour exactly,
+  and 2px more overlaps so no hairline can open up between them at fractional
+  widths. Every board in a row sits at the same height — the covers are all
+  one aspect ratio in equal columns — so the row reads as a single plank
+  passing in front of the uprights.
+
+  The label still centres correctly despite that: each board is symmetric
+  about its own compartment, so the middle of the board is the middle of the
+  niche.
+*/
+.shelf-board {
+  position: relative;
+  z-index: 2;
+  height: 17px;
+  margin: 0 -18px;
+  display: grid;
+  place-items: center;
+  padding: 0 20px;
+  background-color: #4b301a;
+  background-image: linear-gradient(var(--wash), var(--wash)), url('/board.png');
+  background-repeat: repeat, repeat-x;
+  background-position: center, center;
+  background-size: auto, var(--grain-board) 100%;
+  background-blend-mode: color, normal;
+  /*
+    Lit along the top, shadow falling down and to the right — the same light
+    the uprights use. Tight, because this board stands a few millimetres proud
+    of the panel and a wide blur reads as floating.
+  */
+  box-shadow:
+    2px 4px 5px -2px rgba(0, 0, 0, 0.65),
+    inset 0 1px 0 rgba(255, 236, 205, 0.4),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5);
+}
+
+/*
+  The name on the shelf edge.
+
+  One line, clipped — a shelf label is a reminder of what is there, not the
+  full title, and two lines of 7px text would be neither.
+*/
+.board-label {
+  /* Fills the board's content box and centres within it, so a clipped title
+     stays centred rather than drifting to whichever side ran out first. */
+  width: 100%;
+  text-align: center;
+  font-size: 0.58rem;
+  line-height: 1.1;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #f2ddbf;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .book {
@@ -239,6 +620,94 @@ button {
   border-radius: 4px;
 }
 
+/*
+  The menu a long press opens, beside the book it belongs to.
+
+  Fixed rather than positioned inside the compartment, and placed from the
+  cover's measured rect. Not a stylistic choice: the case clips its overflow
+  so the shelves do not spill past its sides, and it would clip this just as
+  willingly. Fixed also keeps it still if the library scrolls underneath.
+*/
+.menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.dropdown {
+  position: fixed;
+  z-index: 61;
+  width: 208px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--surface-2);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dropdown-item {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border-radius: 7px;
+  text-align: left;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.dropdown-item:active {
+  background: var(--surface-2);
+}
+
+.dropdown-item:disabled {
+  opacity: 0.45;
+}
+
+.dropdown-item.is-danger {
+  color: #e08c76;
+}
+
+.dropdown-note {
+  padding: 0.5rem 0.7rem 0.2rem;
+  font-size: 0.8rem;
+  color: var(--text-faint);
+}
+
+.dropdown-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px;
+}
+
+.dropdown-input {
+  width: 100%;
+  padding: 0.5rem 0.55rem;
+  border: 1px solid var(--surface-2);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.dropdown-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Save and Cancel sit side by side; the list items above stack. */
+.dropdown-row {
+  display: flex;
+  gap: 4px;
+}
+
+.dropdown-row .dropdown-item {
+  text-align: center;
+}
+
 .book-title {
   font-size: 0.86rem;
   line-height: 1.3;
@@ -248,14 +717,6 @@ button {
   line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-
-.book-author {
-  font-size: 0.75rem;
-  color: var(--text-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .book-progress {
@@ -905,7 +1366,7 @@ button {
 .overlay {
   position: absolute;
   inset: 0;
-  background: rgba(43, 38, 34, 0.96);
+  background: rgba(34, 26, 18, 0.96);
   display: flex;
   flex-direction: column;
   align-items: center;

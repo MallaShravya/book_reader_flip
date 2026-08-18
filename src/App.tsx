@@ -69,6 +69,29 @@ export default function App(): ReactNode {
     [open, refresh]
   )
 
+  /**
+   * Rename a book.
+   *
+   * The title is the app's own label, not something read back out of the
+   * file — imports guess it from metadata or the filename, and both are
+   * often wrong. Renaming corrects the library without touching the book.
+   *
+   * The open copy is updated too, or the reader would go on showing the old
+   * name in its bar until it was closed and reopened.
+   */
+  const onRename = useCallback(
+    async (book: BookMeta, title: string) => {
+      const trimmed = title.trim()
+      if (!trimmed || trimmed === book.title) return
+
+      const updated: BookMeta = { ...book, title: trimmed }
+      await updateMeta(updated)
+      setOpen((current) => (current?.id === book.id ? updated : current))
+      await refresh()
+    },
+    [refresh]
+  )
+
   const onSettingsChange = useCallback((patch: Partial<ReaderSettings>) => {
     setSettings((prev) => {
       const next = { ...prev, ...patch }
@@ -124,9 +147,12 @@ export default function App(): ReactNode {
           books={books}
           storage={storage}
           busy={busy}
+          sort={settings.librarySort}
+          onSortChange={(librarySort) => onSettingsChange({ librarySort })}
           onImport={onImport}
           onOpen={setOpen}
           onDelete={onDelete}
+          onRename={onRename}
         />
       )}
 
