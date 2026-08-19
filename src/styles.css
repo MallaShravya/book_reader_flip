@@ -49,6 +49,21 @@
   --page-text: #715b3d; /* 4.55:1 */
 }
 
+/*
+  Sepia, a few years older: darker paper, and edges the fire reached.
+
+  The colours are ordinary theme values; the edge is not, and lives further
+  down with .flip-page — it has to be drawn onto every leaf rather than set as
+  a variable.
+*/
+[data-theme='burnt'] {
+  --page-bg: #d8ab70;
+  --page-text: #4a3620; /* 5.4:1 */
+}
+[data-theme='burnt'][data-ink='soft'] {
+  --page-text: #503c24; /* 5.0:1 */
+}
+
 [data-theme='dark'] {
   --page-bg: #1e1c1a;
   --page-text: #d8d0c6; /* 11.1:1 */
@@ -954,6 +969,59 @@ button {
     A class survives because the library only ever touches inline styles.
   */
   overflow: hidden;
+}
+
+/*
+  The burnt page of the Burnt theme: a mask that cuts the leaf to a torn
+  outline, and the char over the paper that survives.
+
+  Both are stretched over the leaf identically — 100% 100%, no repeat. They
+  come from one noise field and only line up if placed the same way.
+
+  The char sits over the text rather than under it — fire is on the page, not
+  beneath the ink.
+
+  The left edge is left clean on purpose: it is the spine, and a book saved
+  from a fire burns at its open edges.
+*/
+[data-theme='burnt'] .flip-page {
+  -webkit-mask-image: url('/page-mask.png');
+  mask-image: url('/page-mask.png');
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+[data-theme='burnt'] .flip-page::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: url('/scorch.png') no-repeat center / 100% 100%;
+}
+
+/*
+  The leaf lifted by a forward turn is drawn reversed.
+
+  A backward turn flips the page element itself, but a forward one flips a
+  clone of it (HTMLPage.newTemporaryCopy) drawn mirrored, so everything on the
+  leaf comes out left-for-right. With one burn texture that meant the clean
+  spine edge landed on the free edge under your thumb: the turning page showed
+  a straight, unburnt edge while the flat page either side of the turn was
+  torn correctly. The burn was never missing — it was on the wrong side.
+
+  So the clone gets mirrored textures, which put the torn edge back where its
+  free edge actually is. lib/flipbook.ts tags it; see the note there for why a
+  class is the only marker that survives a turn.
+*/
+[data-theme='burnt'] .flip-page.is-copy {
+  -webkit-mask-image: url('/page-mask-mirror.png');
+  mask-image: url('/page-mask-mirror.png');
+}
+
+[data-theme='burnt'] .flip-page.is-copy::after {
+  background-image: url('/scorch-mirror.png');
 }
 
 .flip-page-text {

@@ -34,6 +34,14 @@ export interface FlipbookOptions {
  */
 const sizingLoops = new WeakMap<HTMLElement, number>()
 
+/**
+ * Watchers that tag the library's temporary page copies, keyed by container.
+ *
+ * Kept for the same reason as the sizing loops above: a rebuild must not leave
+ * the previous one running against a flipbook that no longer exists.
+ */
+const copyWatchers = new WeakMap<HTMLElement, MutationObserver>()
+
 export function createFlipbook(
   container: HTMLElement,
   pages: HTMLElement[],
@@ -46,6 +54,9 @@ export function createFlipbook(
     cancelAnimationFrame(previous)
     sizingLoops.delete(container)
   }
+
+  copyWatchers.get(container)?.disconnect()
+  copyWatchers.delete(container)
 
   // Whole-pixel container position depends on the stage being measured, so
   // any fractional layout above us defeats it. Nothing to do here, but see
@@ -243,6 +254,51 @@ export function createFlipbook(
    * wrong once), keep checking the reported bounds and fixing them until they
    * are sane, then stop.
    */
+  /*
+   * Tag the temporary copies the library makes for a forward turn.
+   *
+   * A backward turn flips the page element itself. A forward one does not:
+   * PageCollection asks for `newTemporaryCopy()`, which clones the element and
+   * flips the clone, drawn mirrored. Anything on the leaf that is not
+   * left-right symmetric is therefore reversed for that turn — which is how
+   * the Burnt theme's burn came to show its clean spine edge on the very
+   * edge being dragged, in one direction only.
+   *
+   * The clone carries the same classes and attributes as its original, so it
+   * cannot be recognised by inspecting it. What distinguishes it is where it
+   * came from: it is an element that appears in the block and that we did not
+   * create. A class is the right marker because the library rewrites each
+   * page's `cssText` wholesale on every frame of a turn — an inline style
+   * would not survive a single frame — while leaving `classList` alone.
+   */
+  const original = new Set(pages)
+  const block = container.querySelector('.stf__block')
+  if (block) {
+    const watcher = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (!(node instanceof HTMLElement)) continue
+          if (node.classList.contains('flip-page') && !original.has(node)) {
+            /*
+             * Tagged a frame late, on purpose.
+             *
+             * A clone is inserted as an exact copy of the page it came from,
+             * flat and unclipped, and the library does not draw it as a folded
+             * flap until the next frame. Marking it immediately therefore put
+             * a mirrored burn on a leaf still lying square over its original
+             * for one painted frame, which read as the page jumping sideways
+             * and back at the start of every forward turn. Until it is drawn
+             * it should look exactly like what it is a copy of.
+             */
+            requestAnimationFrame(() => node.classList.add('is-copy'))
+          }
+        }
+      }
+    })
+    watcher.observe(block, { childList: true })
+    copyWatchers.set(container, watcher)
+  }
+
   let attempts = 0
   const ensureSized = (): void => {
     try {
@@ -306,7 +362,18 @@ function twoUpWidth(layout: PageLayout, twoUp: boolean): number {
 export function computeLayout(
   containerWidth: number,
   containerHeight: number,
-  fill = false
+  fill = false,
+  /**
+   * Margin on top of the usual one, for a theme that puts something at the
+   * page's edge — the Burnt theme's burn, which would otherwise eat the
+   * first and last words of every line.
+   *
+   * Part of the layout rather than a CSS inset because the text is measured
+   * into columns at this width: shifting it afterwards would move the words
+   * without moving the columns they were fitted to, and the last one on each
+   * page would fall off the edge.
+   */
+  extraPadding = 0
 ): { layout: PageLayout; twoUp: boolean } {
   const twoUp = containerWidth > containerHeight && containerWidth >= 820
 
@@ -327,7 +394,12 @@ export function computeLayout(
 
   // Generous inner margin — cramped text is the most common failing of
   // browser-based readers.
-  const padding = Math.round(Math.min(36, Math.max(18, width * 0.07)))
+  const base = Math.round(Math.min(36, Math.max(18, width * 0.07)))
 
-  return { layout: { width, height, padding }, twoUp }
+  /*
+    The extra goes on the open edges only. The spine is bound into the book,
+    so nothing reaches it and widening it there would give up text for
+    nothing.
+  */
+  return { layout: { width, height, padding: base + extraPadding, paddingLeft: base }, twoUp }
 }

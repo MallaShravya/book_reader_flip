@@ -52,7 +52,7 @@ export interface RenderedPage {
   sourceIndex: number
 }
 
-export type Theme = 'light' | 'sepia' | 'dark'
+export type Theme = 'light' | 'dark' | 'sepia' | 'burnt'
 
 /** Text weight within a theme: 'normal' is the darker of the two. */
 export type Ink = 'normal' | 'soft'

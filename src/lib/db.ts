@@ -1,5 +1,5 @@
 import { get, set, del, keys } from 'idb-keyval'
-import type { BookMeta, ReaderSettings } from '../types'
+import type { BookMeta, ReaderSettings, Theme } from '../types'
 import { DEFAULT_SETTINGS } from '../types'
 
 /**
@@ -124,11 +124,23 @@ export async function savePagination(key: string, pagination: Pagination): Promi
   await set(key, pagination)
 }
 
+/**
+ * Themes that have been renamed, and what they are called now.
+ *
+ * A stored setting outlives the build that wrote it, so a rename has to be
+ * carried rather than assumed: a reader who left the theme on `antique` would
+ * otherwise come back to `data-theme="antique"`, which no longer matches any
+ * rule, and find the burnt pages gone with no way to ask for them back.
+ */
+const RENAMED_THEMES: Record<string, Theme> = { antique: 'burnt' }
+
 export async function loadSettings(): Promise<ReaderSettings> {
   const stored = await get<Partial<ReaderSettings>>(SETTINGS_KEY)
   // Merge over defaults so a settings object written by an older build never
   // leaves a newly added field undefined.
-  return { ...DEFAULT_SETTINGS, ...(stored ?? {}) }
+  const settings = { ...DEFAULT_SETTINGS, ...(stored ?? {}) }
+  const renamed = RENAMED_THEMES[settings.theme]
+  return renamed ? { ...settings, theme: renamed } : settings
 }
 
 export async function saveSettings(settings: ReaderSettings): Promise<void> {

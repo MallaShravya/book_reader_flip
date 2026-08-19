@@ -21,7 +21,16 @@ import type { ReaderSettings, ReadingAnchor } from '../types'
 export interface PageLayout {
   width: number
   height: number
+  /** Margin at the top, right and bottom. */
   padding: number
+  /**
+   * Margin at the spine.
+   *
+   * Separate because a theme may need room at the open edges and not at the
+   * bound one — the Burnt theme's burn reaches three sides, and widening
+   * the spine to match would only lose text for nothing.
+   */
+  paddingLeft: number
 }
 
 interface ChapterSpan {
@@ -42,10 +51,16 @@ const FONT_STACK = {
 
 /** Styles applied identically to the measuring box and to every real page. */
 function contentCss(layout: PageLayout, settings: ReaderSettings): string {
-  const inner = layout.width - layout.padding * 2
+  const inner = layout.width - layout.paddingLeft - layout.padding
+  /*
+    The gap is the two facing margins added together — this page's right and
+    the next one's left. That keeps the stride equal to the page width however
+    the margins are split, so a page still shows exactly one column even when
+    they are not symmetric.
+  */
   return [
     `column-width:${inner}px`,
-    `column-gap:${layout.padding * 2}px`,
+    `column-gap:${layout.paddingLeft + layout.padding}px`,
     `column-fill:auto`,
     `height:${layout.height - layout.padding * 2}px`,
     `font-size:${settings.fontSize}px`,
@@ -106,7 +121,8 @@ export class EpubPaginator {
 
   /** Stride between column starts, including the gap. */
   private get columnStride(): number {
-    return this.layout.width - this.layout.padding * 2 + this.layout.padding * 2
+    // Content width plus the gap, which by construction is the page width.
+    return this.layout.width
   }
 
   /**
@@ -122,7 +138,7 @@ export class EpubPaginator {
       'pointer-events:none',
       'left:-99999px',
       'top:0',
-      `width:${this.layout.width - this.layout.padding * 2}px`,
+      `width:${this.layout.width - this.layout.paddingLeft - this.layout.padding}px`,
       contentCss(this.layout, this.settings)
     ].join(';')
     document.body.appendChild(box)
@@ -310,8 +326,8 @@ export class EpubPaginator {
     inner.style.cssText = [
       'position:absolute',
       `top:${this.layout.padding}px`,
-      `left:${this.layout.padding}px`,
-      `width:${this.layout.width - this.layout.padding * 2}px`,
+      `left:${this.layout.paddingLeft}px`,
+      `width:${this.layout.width - this.layout.paddingLeft - this.layout.padding}px`,
       contentCss(this.layout, this.settings),
       // Shift this chapter's column strip so the requested page is in frame.
       `transform:translateX(${-address.pageInChapter * this.columnStride}px)`
@@ -397,7 +413,7 @@ export class EpubPaginator {
 
 /** Stop oversized images from breaking the column maths. */
 function constrainMedia(root: HTMLElement, layout: PageLayout): void {
-  const maxW = layout.width - layout.padding * 2
+  const maxW = layout.width - layout.paddingLeft - layout.padding
   const maxH = layout.height - layout.padding * 2
   for (const el of Array.from(root.querySelectorAll('img, svg, image, table'))) {
     const node = el as HTMLElement

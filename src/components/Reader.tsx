@@ -56,6 +56,16 @@ function useSettled<T>(value: T, delay: number): T {
  */
 const RESIZE_EPSILON = 64
 
+/**
+ * How much of the page the Burnt theme's burn is kept clear of, as a
+ * fraction of the page width.
+ *
+ * The burn is a texture stretched over the leaf, so it scales with the page;
+ * the margin that clears it has to scale the same way or it would be right on
+ * one screen and wrong on the next.
+ */
+const BURN_MARGIN = 0.1
+
 export default function Reader({
   book,
   settings,
@@ -112,6 +122,21 @@ export default function Reader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [fontSize, lineHeight, fontFamily, flippingTime, chunkChars]
   )
+
+  /*
+   * Extra page margin for the Burnt theme, so the burn never reaches the
+   * words.
+   *
+   * A fraction of the page rather than a fixed number of pixels, because the
+   * burn is drawn as a fraction of the page too — a texture stretched over
+   * the leaf. Fixed pixels would clear it on a phone and not on a tablet.
+   *
+   * This is the one thing that makes a theme cost a re-layout. Theme is
+   * otherwise deliberately kept out of the layout inputs so switching it is
+   * instant; the burn is the exception, because it takes space away from the
+   * text and the text has to be measured into what is left.
+   */
+  const burnt = useSettled(settings.theme === 'burnt', SETTLE_MS)
 
   const [size, setSize] = useState<{ w: number; h: number } | null>(null)
   const [loading, setLoading] = useState<LoadProgress | null>(null)
@@ -308,7 +333,8 @@ export default function Reader({
          * the stage instead.
          */
         const fillScreen = isFullscreen() && book.format === 'epub'
-        const { layout, twoUp } = computeLayout(size.w, size.h, fillScreen)
+        const burnMargin = burnt ? Math.round(size.w * BURN_MARGIN) : 0
+        const { layout, twoUp } = computeLayout(size.w, size.h, fillScreen, burnMargin)
         let pages: HTMLElement[] = []
 
         if (book.format === 'epub') {
@@ -599,7 +625,10 @@ export default function Reader({
     book.id,
     book.format,
     size,
-    layoutSettings
+    layoutSettings,
+    // The only part of the theme that reaches the layout: turning the Burnt
+    // theme on or off changes how much page the text has, so it must rebuild.
+    burnt
   ])
 
   // Animated turns, shared by swipes, tap zones, the buttons and the keyboard.

@@ -62,7 +62,7 @@ export class PdfBook {
   private elements: HTMLElement[] = []
   private rendered = new Set<number>()
   private tasks = new Map<number, RenderTask>()
-  private layout: PageLayout = { width: 0, height: 0, padding: 0 }
+  private layout: PageLayout = { width: 0, height: 0, padding: 0, paddingLeft: 0 }
   /** Current magnification, and the page the window is centred on. */
   private zoom = 1
   private centre = 0

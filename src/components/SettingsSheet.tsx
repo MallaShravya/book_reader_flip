@@ -66,8 +66,9 @@ function Stepper({
 
 const THEMES: Array<{ id: Theme; label: string }> = [
   { id: 'light', label: 'Light' },
+  { id: 'dark', label: 'Dark' },
   { id: 'sepia', label: 'Sepia' },
-  { id: 'dark', label: 'Dark' }
+  { id: 'burnt', label: 'Burnt' }
 ]
 
 export default function SettingsSheet({
