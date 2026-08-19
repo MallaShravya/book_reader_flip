@@ -293,6 +293,51 @@ export function attachFlipGestures(
   const ROLL_Y = 2
   let rolled = false
 
+  /*
+   * Opening the crease on the way back.
+   *
+   * A forward turn creases hard and flattens as the leaf swings away — about
+   * 80 degrees down to 10 across the drag. A backward turn ought to be that in
+   * reverse, arriving flat and creasing as it lands, and it is not: measured
+   * against the same drag it runs 7 degrees down to 4, sliding in almost flat.
+   *
+   * The reason is in FlipCalculation, which derives the crease from the fold
+   * point alone:
+   *
+   *   angle = 2 * atan(top / left),  left = pageWidth - pos.x + 1
+   *
+   * and a backward drag reaches it as *negative* page coordinates, so `left`
+   * grows from about 480 to 760 as the finger travels right. Position and
+   * crease are welded together with the opposite sign: a leaf that follows the
+   * finger has to flatten. The only free variable left is `top` — the y we
+   * feed — so the crease is opened through that instead.
+   *
+   * Matching forward exactly would want `top` around 700px on a 618px page,
+   * far outside the circle that keeps the fold from shimmering. So the crease
+   * is capped where the fold point still sits inside it: the turn opens up as
+   * it lands, but reaches roughly half of what a forward turn shows.
+   */
+  const MIRROR_MAX_DEG = 45
+  /** tan of half the cap, since the crease is twice the arctangent. */
+  const MIRROR_CAP = Math.tan((MIRROR_MAX_DEG * Math.PI) / 360)
+  let pivotTop = true
+  let fromCorner = 0
+  let pageW = 0
+  let pageH = 0
+
+  /**
+   * The y that gives a backward fold the crease a forward one would have.
+   *
+   * `fromCorner` is how far the finger landed from its own corner, which is
+   * what a forward turn keeps constant; here it is scaled by the ratio of the
+   * two `left` values so the angle grows as the leaf comes home.
+   */
+  const mirroredY = (x: number): number => {
+    const left = pageW + 1 + x
+    const opposite = Math.max(1, pageW + 1 - x)
+    const want = Math.min((fromCorner * left) / opposite, left * MIRROR_CAP)
+    return pivotTop ? want : pageH - want
+  }
 
   const limitToCircle = (point: Point, centre: Point, radius: number): Point => {
     const dx = point.x - centre.x
@@ -315,7 +360,12 @@ export function attachFlipGestures(
     }
     // A rolled fold ignores the finger's height entirely; pinning before the
     // clamp rather than after keeps the fold on the circle the clamp intends.
-    const tracked = rolled ? { x: smoothed.x, y: ROLL_Y } : smoothed
+    // A backward corner fold gets its crease opened; see mirroredY.
+    const tracked = rolled
+      ? { x: smoothed.x, y: ROLL_Y }
+      : forward === false
+        ? { x: smoothed.x, y: mirroredY(smoothed.x) }
+        : smoothed
     // Smoothing keeps following the finger; only what reaches the library is
     // constrained, so the fold resumes the moment the drag comes back inside.
     fed = spine ? limitToCircle(tracked, spine, foldRadius) : tracked
@@ -482,9 +532,14 @@ export function attachFlipGestures(
        * library picks top or bottom the same way, from which half of the page
        * the touch began in.
        */
+      pivotTop = rolled || start.y < rect.height / 2
+      fromCorner = pivotTop ? start.y : rect.height - start.y
+      pageW = rect.width
+      pageH = rect.height
+
       spine = {
         x: forward ? 0 : rect.width,
-        y: !rolled && start.y >= rect.height / 2 ? rect.height : 0
+        y: pivotTop ? 0 : rect.height
       }
       foldRadius = rect.width * FOLD_LIMIT
 
