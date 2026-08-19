@@ -165,6 +165,7 @@ export function attachFlipGestures(
     if (!completing && forward !== null) flip.userStop(fed ?? last, false)
     pointerId = null
     forward = null
+    rolled = false
     smoothed = null
     fed = null
   }
@@ -270,6 +271,29 @@ export function attachFlipGestures(
   let spine: Point | null = null
   let foldRadius = 0
 
+  /*
+   * The band down the middle of the page that rolls instead of curling.
+   *
+   * StPageFlip has one fold shape, anchored to the corner nearest the finger:
+   * `bookPos.y >= rect.height / 2 ? BOTTOM : TOP`. Drag level with that corner
+   * and the fold line comes out vertical, so the whole edge lifts at once
+   * rather than a corner peeling — which is the roll the Next button has
+   * always produced, since flipNext seeds its drag at `y: 1`.
+   *
+   * So a middle swipe is not a new animation. It is the same fold, told that
+   * the finger is at the top edge: x still follows the hand, y is pinned. The
+   * anchor is the top corner in both directions, which is what makes a
+   * backward roll the mirror of a forward one rather than its own shape.
+   *
+   * Even thirds. A wider middle would leave less page for the corner curls,
+   * which are the harder targets of the two.
+   */
+  const ROLL_ZONE = 1 / 3
+  /** Where a rolled fold is pinned: the top edge, matching a TOP corner. */
+  const ROLL_Y = 2
+  let rolled = false
+
+
   const limitToCircle = (point: Point, centre: Point, radius: number): Point => {
     const dx = point.x - centre.x
     const dy = point.y - centre.y
@@ -289,9 +313,12 @@ export function attachFlipGestures(
       x: smoothed.x + (last.x - smoothed.x) * FOLLOW,
       y: smoothed.y + (last.y - smoothed.y) * FOLLOW
     }
+    // A rolled fold ignores the finger's height entirely; pinning before the
+    // clamp rather than after keeps the fold on the circle the clamp intends.
+    const tracked = rolled ? { x: smoothed.x, y: ROLL_Y } : smoothed
     // Smoothing keeps following the finger; only what reaches the library is
     // constrained, so the fold resumes the moment the drag comes back inside.
-    fed = spine ? limitToCircle(smoothed, spine, foldRadius) : smoothed
+    fed = spine ? limitToCircle(tracked, spine, foldRadius) : tracked
     flip.userMove(fed, true)
     schedulePump()
   }
@@ -378,6 +405,7 @@ export function attachFlipGestures(
     start = last = toLocal(e.clientX, e.clientY)
     startTime = Date.now()
     forward = null
+    rolled = false
     smoothed = null
     fed = null
     spine = null
@@ -425,11 +453,27 @@ export function attachFlipGestures(
        */
       forward = dx < 0
       const rect = surface.getBoundingClientRect()
+
+      /*
+       * Fixed at touch-down, from where the finger landed rather than where it
+       * is now: a drag that started in the middle and wandered upwards must
+       * keep rolling, because changing the corner mid-fold would make the page
+       * jump from one shape to the other.
+       *
+       * Both directions. A backward turn is the mirror of a forward one — the
+       * leaf comes in from the other edge and pivots about the other spine —
+       * so the band that decides its shape has to be the same band, or the two
+       * halves of the same gesture answer to different rules.
+       */
+      const band = start.y / rect.height
+      rolled = band > ROLL_ZONE && band < 1 - ROLL_ZONE
+
       const seed: Point = {
         x: forward ? rect.width - 2 : 2,
         // Keep the finger's own height so the peel starts from the nearer
-        // corner, top or bottom, as it would naturally.
-        y: Math.max(2, Math.min(rect.height - 2, start.y))
+        // corner, top or bottom, as it would naturally — unless this is a
+        // roll, which is anchored to the top edge whatever the finger's height.
+        y: rolled ? ROLL_Y : Math.max(2, Math.min(rect.height - 2, start.y))
       }
       flip.startUserTouch(seed)
 
@@ -440,7 +484,7 @@ export function attachFlipGestures(
        */
       spine = {
         x: forward ? 0 : rect.width,
-        y: start.y >= rect.height / 2 ? rect.height : 0
+        y: !rolled && start.y >= rect.height / 2 ? rect.height : 0
       }
       foldRadius = rect.width * FOLD_LIMIT
 
