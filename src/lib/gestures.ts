@@ -285,8 +285,8 @@ export function attachFlipGestures(
    * anchor is the top corner in both directions, which is what makes a
    * backward roll the mirror of a forward one rather than its own shape.
    *
-   * Even thirds, and only going forward. A wider middle would leave less
-   * page for the corner curls, which are the harder targets of the two.
+   * Even thirds. A wider middle would leave less page for the corner curls,
+   * which are the harder targets of the two.
    */
   const ROLL_ZONE = 1 / 3
   /** Where a rolled fold is pinned: the top edge, matching a TOP corner. */
@@ -460,14 +460,13 @@ export function attachFlipGestures(
        * keep rolling, because changing the corner mid-fold would make the page
        * jump from one shape to the other.
        *
-       * Forward only. A backward turn rolls wherever it starts, because the
-       * two directions are not mirror images inside the library and a corner
-       * curl coming back reads as the page landing flat rather than peeling.
-       * One shape on the way back is steadier than three that each fail to
-       * match their forward counterpart.
+       * Both directions. A backward turn is the mirror of a forward one — the
+       * leaf comes in from the other edge and pivots about the other spine —
+       * so the band that decides its shape has to be the same band, or the two
+       * halves of the same gesture answer to different rules.
        */
       const band = start.y / rect.height
-      rolled = !forward || (band > ROLL_ZONE && band < 1 - ROLL_ZONE)
+      rolled = band > ROLL_ZONE && band < 1 - ROLL_ZONE
 
       const seed: Point = {
         x: forward ? rect.width - 2 : 2,
