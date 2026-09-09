@@ -176,7 +176,8 @@ button {
   this is a standing condition that stays true until the browser changes its
   mind. It sits under the header, in the reading area, where it is seen.
 */
-.storage-warning {
+.storage-warning,
+.library-trouble {
   margin: 0.6rem 0 0;
   padding: 0.6rem 0.7rem;
   border: 1px solid var(--danger);
@@ -185,11 +186,25 @@ button {
   line-height: 1.45;
 }
 
-.storage-warning strong {
+.storage-warning strong,
+.library-trouble strong {
   font-weight: 600;
 }
 
-.storage-warning button {
+/*
+  The raw error, kept small and set apart. It is there to be read out to
+  someone diagnosing a repeat, not to be understood at a glance.
+*/
+.trouble-detail {
+  margin-top: 0.4rem;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  word-break: break-word;
+}
+
+.storage-warning button,
+.library-trouble button {
   padding: 0;
   font: inherit;
   color: var(--accent);

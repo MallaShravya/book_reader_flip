@@ -6,14 +6,32 @@ import {
   estimateUsage,
   listBooks,
   loadSettings,
+  readWatermark,
   requestPersistence,
   saveSettings,
   updateMeta,
+  writeWatermark,
   type PersistenceState
 } from './lib/db'
 import { importFiles } from './lib/import'
 import Library from './components/Library'
 import Reader from './components/Reader'
+import type { LibraryFailure } from './components/Library'
+
+/**
+ * What to put on screen about an error, from an error of any shape.
+ *
+ * The name matters as much as the message and is usually the more useful half:
+ * IndexedDB reports its refusals as DOMExceptions whose name — `UnknownError`,
+ * `InvalidStateError`, `QuotaExceededError` — is what distinguishes a corrupt
+ * database from a full disk from a browser that shut the store while the app
+ * was backgrounded.
+ */
+function describe(err: unknown): string {
+  if (err instanceof DOMException) return `${err.name}: ${err.message}`
+  if (err instanceof Error) return `${err.name}: ${err.message}`
+  return String(err)
+}
 
 export default function App(): ReactNode {
   const [books, setBooks] = useState<BookMeta[]>([])
@@ -21,11 +39,38 @@ export default function App(): ReactNode {
   const [settings, setSettings] = useState<ReaderSettings>(DEFAULT_SETTINGS)
   const [storage, setStorage] = useState<{ usedMB: number; quotaMB: number } | null>(null)
   const [persistence, setPersistence] = useState<PersistenceState | null>(null)
+  const [failure, setFailure] = useState<LibraryFailure | null>(null)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
+  /**
+   * Read the library, and work out what to say when there is nothing in it.
+   *
+   * An empty shelf used to be rendered the same way whether the library was
+   * genuinely empty, unreadable, or wiped — so the app's advice was to import
+   * books that were quite possibly still sitting there, which duplicates them.
+   * Each of the three now says which it is.
+   */
   const refresh = useCallback(async () => {
-    setBooks(await listBooks())
+    let list: BookMeta[]
+    try {
+      list = await listBooks()
+    } catch (err) {
+      setFailure({ kind: 'unreadable', detail: describe(err) })
+      return
+    }
+
+    const note = readWatermark()
+    const vanished = list.length === 0 && note !== null && note.books > 0
+
+    setBooks(list)
+    setFailure(vanished ? { kind: 'vanished', had: note.books, at: note.at } : null)
+
+    // Not while reporting a disappearance: overwriting the note with zero
+    // would erase the evidence, and the message would be gone by the next
+    // launch. It updates again as soon as there are books to record.
+    if (!vanished) writeWatermark(list.length)
+
     setStorage(await estimateUsage())
   }, [])
 
@@ -34,7 +79,15 @@ export default function App(): ReactNode {
       // Without this, mobile browsers may evict the library under storage
       // pressure — which for a reader means the user's books disappear.
       setPersistence(await requestPersistence())
-      setSettings(await loadSettings())
+      try {
+        setSettings(await loadSettings())
+      } catch (err) {
+        // The same database the books are in. If it will not open for the
+        // settings it will not open for them either, and saying so beats
+        // showing a library that appears to be empty.
+        setFailure({ kind: 'unreadable', detail: describe(err) })
+        return
+      }
       await refresh()
     })()
   }, [refresh])
@@ -169,6 +222,8 @@ export default function App(): ReactNode {
         <Library
           books={books}
           storage={storage}
+          failure={failure}
+          onRetry={() => void refresh()}
           persistence={persistence}
           onProtect={onProtect}
           busy={busy}

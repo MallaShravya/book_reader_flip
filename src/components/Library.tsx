@@ -3,11 +3,24 @@ import type { BookMeta, LibrarySort } from '../types'
 import type { PersistenceState } from '../lib/db'
 import { forceUpdate } from '../lib/sw'
 
+/**
+ * Why the shelf is empty, when it is empty for a reason worth naming.
+ *
+ * `unreadable` — the database refused to open, and the books are probably
+ *                still there behind it.
+ * `vanished`   — it opened, and what it held is gone.
+ */
+export type LibraryFailure =
+  | { kind: 'unreadable'; detail: string }
+  | { kind: 'vanished'; had: number; at: number }
+
 interface Props {
   books: BookMeta[]
   storage: { usedMB: number; quotaMB: number } | null
   persistence: PersistenceState | null
   onProtect: () => void
+  failure: LibraryFailure | null
+  onRetry: () => void
   busy: boolean
   sort: LibrarySort
   onSortChange: (sort: LibrarySort) => void
@@ -139,6 +152,49 @@ function StorageWarning({
   )
 }
 
+/**
+ * An empty shelf that is empty for a reason.
+ *
+ * Both cases exist to stop the app from lying by omission, and to leave enough
+ * behind to diagnose a repeat: the error's own name for a database that will
+ * not open, and for a library that disappeared, the fact that the note in
+ * localStorage outlived it — which narrows the cause to the IndexedDB
+ * database alone rather than the whole origin.
+ */
+function LibraryTrouble({
+  failure,
+  onRetry
+}: {
+  failure: LibraryFailure | null
+  onRetry: () => void
+}): ReactNode {
+  if (!failure) return null
+
+  if (failure.kind === 'unreadable') {
+    return (
+      <div className="library-trouble">
+        <strong>Your library could not be read.</strong> The books are most
+        likely still here — the store that holds them would not open. Try
+        again, and restart the app if it keeps failing. Adding books now would
+        make a second copy of ones you already have.{' '}
+        <button onClick={onRetry}>Try again</button>
+        <div className="trouble-detail">{failure.detail}</div>
+      </div>
+    )
+  }
+
+  const when = new Date(failure.at).toLocaleString()
+  return (
+    <div className="library-trouble">
+      <strong>Your library is empty, and it was not before.</strong> It held{' '}
+      {failure.had} {failure.had === 1 ? 'book' : 'books'} as of {when}. The
+      browser discarded the store they were in while keeping everything else,
+      so this was the database alone rather than all of this site's data.
+      Re-adding them is safe — nothing is hiding behind this.
+    </div>
+  )
+}
+
 function Progress({ value }: { value: number }): ReactNode {
   if (value <= 0) return null
   return (
@@ -153,6 +209,8 @@ export default function Library({
   storage,
   persistence,
   onProtect,
+  failure,
+  onRetry,
   busy,
   sort,
   onSortChange,
@@ -302,6 +360,7 @@ export default function Library({
         </button>
       </div>
       <StorageWarning persistence={persistence} onProtect={onProtect} />
+      <LibraryTrouble failure={failure} onRetry={onRetry} />
 
       <div className="library-actions">
         <input
@@ -322,11 +381,16 @@ export default function Library({
       </div>
 
       {books.length === 0 ? (
-        <div className="empty">
-          Add an EPUB or a PDF to get started.
-          <br />
-          Your books never leave this device.
-        </div>
+        // Silent when something has already been said above it. Inviting an
+        // import under a notice about books that may still exist is how a
+        // library ends up with two of everything.
+        failure ? null : (
+          <div className="empty">
+            Add an EPUB or a PDF to get started.
+            <br />
+            Your books never leave this device.
+          </div>
+        )
       ) : (
         <>
           {/*

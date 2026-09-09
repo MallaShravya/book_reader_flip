@@ -148,6 +148,60 @@ export async function saveSettings(settings: ReaderSettings): Promise<void> {
 }
 
 /**
+ * A note of what the library last held, kept in localStorage.
+ *
+ * Deliberately not in IndexedDB, and that is the entire point. The two are
+ * separate stores that fail in different ways, so which of them survives says
+ * what went wrong:
+ *
+ *   note present, books gone  — the IndexedDB database alone was lost, which
+ *                               is what Chrome does when it cannot open one
+ *                               cleanly and recreates it from scratch
+ *   note gone too             — the whole origin was emptied: eviction, or a
+ *                               clear of site data
+ *
+ * Without it an empty shelf is just an empty shelf, and a reader who lost
+ * their library is told nothing at all — which is exactly what happened on
+ * 2026-09-06 and left us guessing a week later.
+ */
+const WATERMARK_KEY = 'reader:last-seen'
+
+export interface Watermark {
+  books: number
+  at: number
+}
+
+export function readWatermark(): Watermark | null {
+  try {
+    const raw = localStorage.getItem(WATERMARK_KEY)
+    if (!raw) return null
+    const parsed: unknown = JSON.parse(raw)
+    // Hand-edited, half-written, or written by an older shape. A bad note must
+    // not be able to raise a false alarm about missing books.
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      typeof (parsed as Watermark).books !== 'number' ||
+      typeof (parsed as Watermark).at !== 'number'
+    ) {
+      return null
+    }
+    return parsed as Watermark
+  } catch {
+    // Storage disabled, or full. Losing the note costs a diagnostic, not data.
+    return null
+  }
+}
+
+export function writeWatermark(books: number): void {
+  try {
+    localStorage.setItem(WATERMARK_KEY, JSON.stringify({ books, at: Date.now() }))
+  } catch {
+    /* see above */
+  }
+}
+
+/**
  * Whether the browser has promised to keep this origin's data.
  *
  * `best-effort` is the default and the dangerous one: the quota manager may
