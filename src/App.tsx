@@ -8,7 +8,8 @@ import {
   loadSettings,
   requestPersistence,
   saveSettings,
-  updateMeta
+  updateMeta,
+  type PersistenceState
 } from './lib/db'
 import { importFiles } from './lib/import'
 import Library from './components/Library'
@@ -19,6 +20,7 @@ export default function App(): ReactNode {
   const [open, setOpen] = useState<BookMeta | null>(null)
   const [settings, setSettings] = useState<ReaderSettings>(DEFAULT_SETTINGS)
   const [storage, setStorage] = useState<{ usedMB: number; quotaMB: number } | null>(null)
+  const [persistence, setPersistence] = useState<PersistenceState | null>(null)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -31,11 +33,32 @@ export default function App(): ReactNode {
     void (async () => {
       // Without this, mobile browsers may evict the library under storage
       // pressure — which for a reader means the user's books disappear.
-      await requestPersistence()
+      setPersistence(await requestPersistence())
       setSettings(await loadSettings())
       await refresh()
     })()
   }, [refresh])
+
+  /**
+   * Ask again for persistent storage, from a tap.
+   *
+   * Chrome grants it on signals that accumulate — the app being installed, the
+   * site being used — so a refusal is not permanent and the ask is worth
+   * repeating. Saying so out loud matters as much as the retry: an unprotected
+   * library gives no warning before it is gone.
+   */
+  const onProtect = useCallback(async () => {
+    const state = await requestPersistence()
+    setPersistence(state)
+    // Only the refusal needs saying. A grant removes the warning and marks the
+    // header "kept", which is the whole answer; a toast on top of that would
+    // be a second copy of it.
+    if (state !== 'persisted') {
+      setToast(
+        'The browser still will not promise to keep it. Using the app regularly, or bookmarking it, makes it likelier to agree.'
+      )
+    }
+  }, [])
 
   useEffect(() => {
     if (!toast) return
@@ -146,6 +169,8 @@ export default function App(): ReactNode {
         <Library
           books={books}
           storage={storage}
+          persistence={persistence}
+          onProtect={onProtect}
           busy={busy}
           sort={settings.librarySort}
           onSortChange={(librarySort) => onSettingsChange({ librarySort })}

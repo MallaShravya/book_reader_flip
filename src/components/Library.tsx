@@ -1,10 +1,13 @@
 import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import type { BookMeta, LibrarySort } from '../types'
+import type { PersistenceState } from '../lib/db'
 import { forceUpdate } from '../lib/sw'
 
 interface Props {
   books: BookMeta[]
   storage: { usedMB: number; quotaMB: number } | null
+  persistence: PersistenceState | null
+  onProtect: () => void
   busy: boolean
   sort: LibrarySort
   onSortChange: (sort: LibrarySort) => void
@@ -107,6 +110,35 @@ function Cover({
   )
 }
 
+/**
+ * Whether the browser has promised to keep the library.
+ *
+ * Silent when the answer is yes — the header already says "kept" — and plain
+ * about it when the answer is no. An unprotected library gives no warning of
+ * its own: the books are simply gone one morning, with the settings, and
+ * nothing on screen explains why. This is that warning.
+ */
+function StorageWarning({
+  persistence,
+  onProtect
+}: {
+  persistence: PersistenceState | null
+  onProtect: () => void
+}): ReactNode {
+  // `null` is the moment before the answer arrives, and 'unsupported' a
+  // browser with nothing to ask. Neither is worth alarming anyone over.
+  if (persistence !== 'best-effort') return null
+
+  return (
+    <div className="storage-warning">
+      <strong>This library is not protected.</strong> The browser has not
+      promised to keep it, so it may be cleared to free up space — books,
+      settings and reading positions together.{' '}
+      <button onClick={onProtect}>Ask again</button>
+    </div>
+  )
+}
+
 function Progress({ value }: { value: number }): ReactNode {
   if (value <= 0) return null
   return (
@@ -119,6 +151,8 @@ function Progress({ value }: { value: number }): ReactNode {
 export default function Library({
   books,
   storage,
+  persistence,
+  onProtect,
   busy,
   sort,
   onSortChange,
@@ -248,6 +282,7 @@ export default function Library({
         {storage && (
           <span className="subtle">
             {storage.usedMB < 1 ? '<1' : storage.usedMB.toFixed(0)} MB used
+            {persistence === 'persisted' && ' · kept'}
           </span>
         )}
       </div>
@@ -266,6 +301,7 @@ export default function Library({
           check for update
         </button>
       </div>
+      <StorageWarning persistence={persistence} onProtect={onProtect} />
 
       <div className="library-actions">
         <input

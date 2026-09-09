@@ -148,14 +148,37 @@ export async function saveSettings(settings: ReaderSettings): Promise<void> {
 }
 
 /**
- * Ask the browser to keep this data. Without it, mobile browsers will evict
- * the whole library under storage pressure — which for a reader means the
- * user's books silently vanish.
+ * Whether the browser has promised to keep this origin's data.
+ *
+ * `best-effort` is the default and the dangerous one: the quota manager may
+ * drop the whole origin at once when the device runs low, taking the books,
+ * the settings and the reading positions together. That is not hypothetical —
+ * it happened here, and the giveaway was the theme reverting to its default
+ * alongside an empty shelf.
  */
-export async function requestPersistence(): Promise<boolean> {
-  if (!navigator.storage?.persist) return false
-  if (await navigator.storage.persisted()) return true
-  return navigator.storage.persist()
+export type PersistenceState = 'persisted' | 'best-effort' | 'unsupported'
+
+/**
+ * Ask the browser to keep this data, and report what it said.
+ *
+ * The answer used to be discarded, which left no way to tell a library that
+ * is safe from one that is one low-storage morning away from being erased.
+ *
+ * Worth calling more than once. Chrome decides from its own signals — whether
+ * the app is installed, how much the site is used — and an origin it refuses
+ * today it may accept later, so a repeat ask is not a wasted one.
+ */
+export async function requestPersistence(): Promise<PersistenceState> {
+  if (!navigator.storage?.persist) return 'unsupported'
+  try {
+    if (await navigator.storage.persisted()) return 'persisted'
+    return (await navigator.storage.persist()) ? 'persisted' : 'best-effort'
+  } catch {
+    // Firefox can reject rather than resolve false, and some embedded views
+    // expose the method without implementing it. Either way we did not get
+    // the promise, which is what `best-effort` means.
+    return 'best-effort'
+  }
 }
 
 export async function estimateUsage(): Promise<{ usedMB: number; quotaMB: number } | null> {
