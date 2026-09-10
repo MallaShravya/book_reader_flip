@@ -679,6 +679,32 @@ button {
 }
 
 /*
+  A book whose file is gone.
+
+  Faded rather than hidden, because the entry is still worth something: the
+  title, the cover and the reader's place in it all survive, and a file can be
+  put back underneath them. Removing it from the shelf would throw those away
+  to tidy up a symptom.
+*/
+.book-cover.is-missing img,
+.book-cover.is-missing .book-cover-fallback {
+  opacity: 0.35;
+}
+
+.book-missing {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  text-align: center;
+  padding: 3px 2px;
+}
+
+/*
   The menu a long press opens, beside the book it belongs to.
 
   Fixed rather than positioned inside the compartment, and placed from the

@@ -28,6 +28,9 @@ interface Props {
   onOpen: (book: BookMeta) => void
   onDelete: (book: BookMeta) => void
   onRename: (book: BookMeta, title: string) => void
+  /** Ids of books whose file is gone, leaving only a shelf entry. */
+  missing: ReadonlySet<string>
+  onRepair: (book: BookMeta, file: File) => void
 }
 
 /** How many books the recently-read row holds before it starts scrolling. */
@@ -50,10 +53,13 @@ const LONG_PRESS_SLOP = 10
 
 function Cover({
   book,
+  missing,
   onOpen,
   onLongPress
 }: {
   book: BookMeta
+  /** Its file is gone. The entry is still real, and can be given one back. */
+  missing?: boolean
   onOpen: () => void
   /** Omitted where a book is only a shortcut, as in the recently-read row. */
   onLongPress?: (at: DOMRect) => void
@@ -73,8 +79,8 @@ function Cover({
     <div className="cover-slot">
       <button
         ref={cover}
-        className="book-cover"
-        aria-label={`Open ${book.title}`}
+        className={missing ? 'book-cover is-missing' : 'book-cover'}
+        aria-label={missing ? `${book.title} — file missing` : `Open ${book.title}`}
         onClick={(e) => {
           /*
            * A long press ends in a click too, and without this the menu would
@@ -118,6 +124,7 @@ function Cover({
           <span className="book-cover-fallback">{book.title}</span>
         )}
         <span className="book-format">{book.format.toUpperCase()}</span>
+        {missing && <span className="book-missing">File missing</span>}
       </button>
     </div>
   )
@@ -217,9 +224,14 @@ export default function Library({
   onImport,
   onOpen,
   onDelete,
-  onRename
+  onRename,
+  missing,
+  onRepair
 }: Props): ReactNode {
   const inputRef = useRef<HTMLInputElement>(null)
+  const repairRef = useRef<HTMLInputElement>(null)
+  /** Which book the repair picker was opened for. */
+  const repairFor = useRef<BookMeta | null>(null)
   const [dragging, setDragging] = useState(false)
 
   /*
@@ -378,6 +390,25 @@ export default function Library({
         <button className="btn" onClick={() => inputRef.current?.click()} disabled={busy}>
           {busy ? 'Adding…' : 'Add books'}
         </button>
+
+        {/*
+          Kept apart from the import input above. This one does not add a book;
+          it hands bytes to a book that already exists, and the ref beside it
+          remembers which — a picker gives no way to ask afterwards.
+        */}
+        <input
+          ref={repairRef}
+          type="file"
+          accept=".epub,.pdf,application/epub+zip,application/pdf"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            const book = repairFor.current
+            repairFor.current = null
+            e.target.value = ''
+            if (file && book) onRepair(book, file)
+          }}
+        />
       </div>
 
       {books.length === 0 ? (
@@ -406,7 +437,11 @@ export default function Library({
               <div className="recent-row">
                 {recent.map((book) => (
                   <div key={book.id} className="recent-book">
-                    <Cover book={book} onOpen={() => onOpen(book)} />
+                    <Cover
+                      book={book}
+                      missing={missing.has(book.id)}
+                      onOpen={() => onOpen(book)}
+                    />
                     <div className="book-title">{book.title}</div>
                     <Progress value={book.progress} />
                   </div>
@@ -433,6 +468,7 @@ export default function Library({
                 <div key={book.id} className="book">
                   <Cover
                     book={book}
+                    missing={missing.has(book.id)}
                     onOpen={() => onOpen(book)}
                     onLongPress={(at) => openMenu(book, at)}
                   />
@@ -484,6 +520,18 @@ export default function Library({
           >
             {mode === 'menu' && (
               <>
+                {missing.has(menu.book.id) && (
+                  <button
+                    className="dropdown-item"
+                    onClick={() => {
+                      repairFor.current = menu.book
+                      closeMenu()
+                      repairRef.current?.click()
+                    }}
+                  >
+                    Find file…
+                  </button>
+                )}
                 <button className="dropdown-item" onClick={() => setMode('rename')}>
                   Rename
                 </button>

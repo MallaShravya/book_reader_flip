@@ -52,6 +52,56 @@ export async function getFile(id: string): Promise<ArrayBuffer | undefined> {
   return get<ArrayBuffer>(FILE_PREFIX + id)
 }
 
+/**
+ * Which of these books have lost their file.
+ *
+ * The shelf is built from `meta:` alone, so a book whose bytes are gone still
+ * appears on it — cover, title, progress and all — and only fails when it is
+ * opened. Metadata is small and lives inside the database; a book file is
+ * megabytes and Chrome keeps values that size as separate files on disk, so
+ * the two can be lost independently and one of them going is not hypothetical.
+ *
+ * Costs one listing of the keys and reads no book data: the answer is which
+ * `file:` keys are absent, and pulling the bytes in to find out would defeat
+ * the point of keeping them apart.
+ */
+export async function findMissingFiles(ids: string[]): Promise<string[]> {
+  const present = new Set(
+    (await keys()).filter(
+      (k): k is string => typeof k === 'string' && k.startsWith(FILE_PREFIX)
+    )
+  )
+  return ids.filter((id) => !present.has(FILE_PREFIX + id))
+}
+
+/**
+ * Put a file back under a book that has lost its own, keeping its identity.
+ *
+ * Deliberately not an import. Importing mints a new id, which restores the
+ * book but abandons everything the library knows about it — the reader's
+ * place, the progress bar, a corrected title. Those are the only parts that
+ * cannot be recovered from the file itself, so they are the parts worth
+ * keeping.
+ *
+ * Any cached pagination for the book goes: it describes the bytes that were
+ * there before, and a stale one is believed rather than checked — the failure
+ * would be a book that skips text at the seams.
+ */
+export async function replaceBookFile(meta: BookMeta, bytes: ArrayBuffer): Promise<void> {
+  await set(FILE_PREFIX + meta.id, bytes)
+  await set(META_PREFIX + meta.id, { ...meta, sizeBytes: bytes.byteLength })
+
+  const allKeys = await keys()
+  await Promise.all(
+    allKeys
+      .filter(
+        (k): k is string =>
+          typeof k === 'string' && k.startsWith(PAGES_PREFIX) && k.includes(`:${meta.id}:`)
+      )
+      .map((k) => del(k))
+  )
+}
+
 export async function deleteBook(id: string): Promise<void> {
   await del(FILE_PREFIX + id)
   await del(META_PREFIX + id)

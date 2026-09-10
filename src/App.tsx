@@ -4,9 +4,11 @@ import { DEFAULT_SETTINGS } from './types'
 import {
   deleteBook,
   estimateUsage,
+  findMissingFiles,
   listBooks,
   loadSettings,
   readWatermark,
+  replaceBookFile,
   requestPersistence,
   saveSettings,
   updateMeta,
@@ -40,6 +42,7 @@ export default function App(): ReactNode {
   const [storage, setStorage] = useState<{ usedMB: number; quotaMB: number } | null>(null)
   const [persistence, setPersistence] = useState<PersistenceState | null>(null)
   const [failure, setFailure] = useState<LibraryFailure | null>(null)
+  const [missing, setMissing] = useState<ReadonlySet<string>>(() => new Set())
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -64,6 +67,7 @@ export default function App(): ReactNode {
     const vanished = list.length === 0 && note !== null && note.books > 0
 
     setBooks(list)
+    setMissing(new Set(await findMissingFiles(list.map((b) => b.id))))
     setFailure(vanished ? { kind: 'vanished', had: note.books, at: note.at } : null)
 
     // Not while reporting a disappearance: overwriting the note with zero
@@ -143,6 +147,38 @@ export default function App(): ReactNode {
       await refresh()
     },
     [open, refresh]
+  )
+
+  /**
+   * Give a book back the file it lost.
+   *
+   * Rejects a file of the wrong format outright rather than storing it. The
+   * metadata says which reader will be handed these bytes, and a PDF opened by
+   * the EPUB path fails somewhere deep in a parser with a message about zip
+   * headers — long after the point where the real mistake could be named.
+   */
+  const onRepair = useCallback(
+    async (book: BookMeta, file: File) => {
+      const name = file.name.toLowerCase()
+      const format = name.endsWith('.epub') ? 'epub' : name.endsWith('.pdf') ? 'pdf' : null
+      if (format !== book.format) {
+        const kind = book.format === 'epub' ? 'an EPUB' : 'a PDF'
+        setToast(`"${book.title}" needs ${kind} file.`)
+        return
+      }
+
+      setBusy(true)
+      try {
+        await replaceBookFile(book, await file.arrayBuffer())
+        await refresh()
+        setToast(`"${book.title}" is readable again, still at your place in it.`)
+      } catch (err) {
+        setToast(err instanceof Error ? err.message : String(err))
+      } finally {
+        setBusy(false)
+      }
+    },
+    [refresh]
   )
 
   /**
@@ -230,7 +266,17 @@ export default function App(): ReactNode {
           sort={settings.librarySort}
           onSortChange={(librarySort) => onSettingsChange({ librarySort })}
           onImport={onImport}
-          onOpen={setOpen}
+          missing={missing}
+          onRepair={onRepair}
+          onOpen={(book) => {
+            // The reader would get as far as a five-second toast and a blank
+            // stage. The shelf knows better before anything is torn down.
+            if (missing.has(book.id)) {
+              setToast(`"${book.title}" has lost its file. Hold it down and choose "Find file" to put it back.`)
+              return
+            }
+            setOpen(book)
+          }}
           onDelete={onDelete}
           onRename={onRename}
         />
