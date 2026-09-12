@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import type { BookMeta, LibrarySort } from '../types'
 import type { PersistenceState } from '../lib/db'
+import { formatLog, readLog } from '../lib/diagnostics'
 import { forceUpdate } from '../lib/sw'
 
 /**
@@ -9,10 +10,13 @@ import { forceUpdate } from '../lib/sw'
  * `unreadable` — the database refused to open, and the books are probably
  *                still there behind it.
  * `vanished`   — it opened, and what it held is gone.
+ * `restored`   — it was emptied, and the shelf has been rebuilt from the copy
+ *                kept outside it. The books are back; their files are not.
  */
 export type LibraryFailure =
   | { kind: 'unreadable'; detail: string }
   | { kind: 'vanished'; had: number; at: number }
+  | { kind: 'restored'; count: number; at: number }
 
 interface Props {
   books: BookMeta[]
@@ -191,6 +195,20 @@ function LibraryTrouble({
   }
 
   const when = new Date(failure.at).toLocaleString()
+
+  if (failure.kind === 'restored') {
+    return (
+      <div className="library-trouble">
+        <strong>The browser discarded your library again.</strong> The shelf has
+        been rebuilt from the copy kept outside it, so {failure.count}{' '}
+        {failure.count === 1 ? 'book is' : 'books are'} back with your place in{' '}
+        {failure.count === 1 ? 'it' : 'each'} — last seen {when}. Only the files
+        are gone: hold a book down and choose "Find file" to point it at its
+        own again.
+      </div>
+    )
+  }
+
   return (
     <div className="library-trouble">
       <strong>Your library is empty, and it was not before.</strong> It held{' '}
@@ -198,6 +216,41 @@ function LibraryTrouble({
       browser discarded the store they were in while keeping everything else,
       so this was the database alone rather than all of this site's data.
       Re-adding them is safe — nothing is hiding behind this.
+    </div>
+  )
+}
+
+/**
+ * What every launch found, oldest first.
+ *
+ * On screen rather than in the console because the losses happen on a phone,
+ * where there is no console to open. The copy button is the point of it: the
+ * log is only useful somewhere it can be read next to the code.
+ */
+function StorageLog(): ReactNode {
+  const log = readLog()
+  const text = formatLog(log)
+  const [copied, setCopied] = useState(false)
+
+  if (log.length === 0) {
+    return <div className="storage-log">Nothing logged yet — this is the first launch to record one.</div>
+  }
+
+  return (
+    <div className="storage-log">
+      <pre>{text}</pre>
+      <button
+        onClick={() => {
+          void navigator.clipboard?.writeText(text).then(
+            () => setCopied(true),
+            // Denied, or no clipboard over a plain-http LAN address. The text
+            // is on screen either way, which is the fallback.
+            () => setCopied(false)
+          )
+        }}
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </button>
     </div>
   )
 }
@@ -230,6 +283,7 @@ export default function Library({
 }: Props): ReactNode {
   const inputRef = useRef<HTMLInputElement>(null)
   const repairRef = useRef<HTMLInputElement>(null)
+  const [showLog, setShowLog] = useState(false)
   /** Which book the repair picker was opened for. */
   const repairFor = useRef<BookMeta | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -370,7 +424,16 @@ export default function Library({
         >
           check for update
         </button>
+        {' · '}
+        <button
+          className="subtle"
+          style={{ padding: 0, textDecoration: 'underline' }}
+          onClick={() => setShowLog((on) => !on)}
+        >
+          storage log
+        </button>
       </div>
+      {showLog && <StorageLog />}
       <StorageWarning persistence={persistence} onProtect={onProtect} />
       <LibraryTrouble failure={failure} onRetry={onRetry} />
 

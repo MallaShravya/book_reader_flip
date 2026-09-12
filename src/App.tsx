@@ -7,14 +7,18 @@ import {
   findMissingFiles,
   listBooks,
   loadSettings,
+  readMirror,
   readWatermark,
   replaceBookFile,
   requestPersistence,
+  restoreFromMirror,
   saveSettings,
   updateMeta,
+  writeMirror,
   writeWatermark,
   type PersistenceState
 } from './lib/db'
+import { appendLaunch } from './lib/diagnostics'
 import { importFiles } from './lib/import'
 import Library from './components/Library'
 import Reader from './components/Reader'
@@ -54,35 +58,59 @@ export default function App(): ReactNode {
    * books that were quite possibly still sitting there, which duplicates them.
    * Each of the three now says which it is.
    */
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<LibraryFailure | null> => {
     let list: BookMeta[]
     try {
       list = await listBooks()
     } catch (err) {
-      setFailure({ kind: 'unreadable', detail: describe(err) })
-      return
+      const trouble: LibraryFailure = { kind: 'unreadable', detail: describe(err) }
+      setFailure(trouble)
+      return trouble
     }
 
     const note = readWatermark()
-    const vanished = list.length === 0 && note !== null && note.books > 0
+    let trouble: LibraryFailure | null = null
+
+    if (list.length === 0 && note !== null && note.books > 0) {
+      // The library was emptied out from under us. Put back what was kept
+      // outside it: the books come back with their places intact, each one
+      // wanting its file again.
+      const mirrored = readMirror()
+      if (mirrored.length > 0) {
+        try {
+          await restoreFromMirror(mirrored)
+          list = await listBooks()
+          trouble = { kind: 'restored', count: list.length, at: note.at }
+        } catch (err) {
+          trouble = { kind: 'unreadable', detail: describe(err) }
+        }
+      } else {
+        trouble = { kind: 'vanished', had: note.books, at: note.at }
+      }
+    }
 
     setBooks(list)
     setMissing(new Set(await findMissingFiles(list.map((b) => b.id))))
-    setFailure(vanished ? { kind: 'vanished', had: note.books, at: note.at } : null)
+    setFailure(trouble)
 
-    // Not while reporting a disappearance: overwriting the note with zero
-    // would erase the evidence, and the message would be gone by the next
-    // launch. It updates again as soon as there are books to record.
-    if (!vanished) writeWatermark(list.length)
+    // Not while reporting a disappearance nothing could be restored from:
+    // overwriting the note with zero would erase the evidence, and the message
+    // would be gone by the next launch.
+    if (trouble?.kind !== 'vanished') {
+      writeWatermark(list.length)
+      writeMirror(list)
+    }
 
     setStorage(await estimateUsage())
+    return trouble
   }, [])
 
   useEffect(() => {
     void (async () => {
       // Without this, mobile browsers may evict the library under storage
       // pressure — which for a reader means the user's books disappear.
-      setPersistence(await requestPersistence())
+      const state = await requestPersistence()
+      setPersistence(state)
       try {
         setSettings(await loadSettings())
       } catch (err) {
@@ -90,9 +118,34 @@ export default function App(): ReactNode {
         // settings it will not open for them either, and saying so beats
         // showing a library that appears to be empty.
         setFailure({ kind: 'unreadable', detail: describe(err) })
+        appendLaunch({
+          at: Date.now(),
+          books: 0,
+          usedMB: null,
+          quotaMB: null,
+          persisted: state === 'persisted',
+          event: 'unreadable'
+        })
         return
       }
-      await refresh()
+
+      const trouble = await refresh()
+      // One line per launch, written where the losses do not reach. Read back
+      // after the next one, the run of entries before it is what says whether
+      // the browser was short of room or the database simply failed.
+      const usage = await estimateUsage()
+      appendLaunch({
+        at: Date.now(),
+        books: (await listBooks().catch(() => [])).length,
+        usedMB: usage?.usedMB ?? null,
+        quotaMB: usage?.quotaMB ?? null,
+        persisted: state === 'persisted',
+        event: trouble?.kind === 'restored' || trouble?.kind === 'vanished'
+          ? trouble.kind
+          : trouble?.kind === 'unreadable'
+            ? 'unreadable'
+            : undefined
+      })
     })()
   }, [refresh])
 

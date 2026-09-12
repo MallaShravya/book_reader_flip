@@ -679,6 +679,35 @@ button {
 }
 
 /*
+  The launch log. Monospace and scrollable in both directions: the lines are
+  columns of numbers that only read as columns if they are not wrapped.
+*/
+.storage-log {
+  margin: 0.6rem 0 0;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--surface-edge, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+}
+
+.storage-log pre {
+  margin: 0 0 0.5rem;
+  max-height: 40vh;
+  overflow: auto;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+.storage-log button {
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/*
   A book whose file is gone.
 
   Faded rather than hidden, because the entry is still worth something: the

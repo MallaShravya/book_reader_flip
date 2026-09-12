@@ -252,6 +252,67 @@ export function writeWatermark(books: number): void {
 }
 
 /**
+ * A copy of the shelf — the metadata only — kept alongside the note.
+ *
+ * The books themselves are not worth copying: the files are still on the
+ * device they were imported from, and a third copy of several hundred
+ * megabytes buys nothing. What cannot be recovered by importing them again is
+ * everything the library knows *about* them — where the reader had got to,
+ * how far through each book they are, a title corrected by hand. That is a
+ * few kilobytes, and it is what keeps being destroyed.
+ *
+ * Covers are the one part that is not small. They are kept while they fit and
+ * dropped when they do not, because a shelf of grey rectangles with the right
+ * names and the right places in them is worth far more than a prettier one
+ * that would not save.
+ */
+const MIRROR_KEY = 'reader:shelf'
+
+export function writeMirror(books: BookMeta[]): void {
+  const write = (value: BookMeta[]): void => {
+    localStorage.setItem(MIRROR_KEY, JSON.stringify(value))
+  }
+  try {
+    write(books)
+  } catch {
+    try {
+      write(books.map((b) => ({ ...b, cover: null })))
+    } catch {
+      // Even the text will not fit, or storage is disabled. Nothing to do
+      // here: this is insurance, and failing to buy it must not break a load.
+    }
+  }
+}
+
+export function readMirror(): BookMeta[] {
+  try {
+    const raw = localStorage.getItem(MIRROR_KEY)
+    if (!raw) return []
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    // An entry with no id cannot be written back or matched to a file, and a
+    // malformed mirror must not be able to put rubbish on the shelf.
+    return parsed.filter(
+      (b): b is BookMeta => typeof b?.id === 'string' && typeof b?.title === 'string'
+    )
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Write mirrored books back into an emptied library.
+ *
+ * Metadata only — there are no files to restore, and each book comes back
+ * marked as missing one until its own is found again. That is the honest
+ * state: the library remembers the book and has lost the copy of it.
+ */
+export async function restoreFromMirror(books: BookMeta[]): Promise<number> {
+  await Promise.all(books.map((b) => set(META_PREFIX + b.id, b)))
+  return books.length
+}
+
+/**
  * Whether the browser has promised to keep this origin's data.
  *
  * `best-effort` is the default and the dangerous one: the quota manager may
