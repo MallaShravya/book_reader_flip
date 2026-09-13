@@ -31,8 +31,54 @@ export interface LaunchEntry {
   usedMB: number | null
   quotaMB: number | null
   persisted: boolean | null
+  /** How many Cache Storage caches exist, and how many entries across them. */
+  caches?: number | null
+  cached?: number | null
   /** Set only when the launch found something wrong. */
   event?: 'vanished' | 'restored' | 'unreadable'
+}
+
+/**
+ * What Cache Storage is holding.
+ *
+ * Logged beside the book count to answer a question nothing else can: whether
+ * the store the app itself is cached in survives the losses that keep emptying
+ * IndexedDB. Those are separate stores — Cache Storage keeps real files, not
+ * values inside a database — so a wipe that leaves this intact would be direct
+ * evidence, on this phone rather than in principle, that the book bytes belong
+ * here instead.
+ *
+ * The precache alone is about thirty entries, so a collapse to zero is
+ * unmistakable.
+ */
+export async function probeCaches(): Promise<{ caches: number; entries: number } | null> {
+  try {
+    if (!globalThis.caches) return null
+    const names = await caches.keys()
+    const counts = await Promise.all(
+      names.map(async (n) => (await (await caches.open(n)).keys()).length)
+    )
+    return { caches: names.length, entries: counts.reduce((a, b) => a + b, 0) }
+  } catch {
+    // Blocked in some embedded views, and absent over plain http.
+    return null
+  }
+}
+
+/**
+ * The two routes out of this that are worth knowing about.
+ *
+ * `opfs` is the origin private file system: real files, outside the database,
+ * though still inside the same quota and so still evictable. `picker` is the
+ * file picker that yields a lasting handle to a file the reader chose — the
+ * only option where the bytes never live in browser storage at all, and so
+ * the only true fix, if this browser has it.
+ */
+export function capabilities(): { opfs: boolean; picker: boolean } {
+  return {
+    opfs: typeof navigator.storage?.getDirectory === 'function',
+    picker: 'showOpenFilePicker' in globalThis
+  }
 }
 
 export function readLog(): LaunchEntry[] {
@@ -79,7 +125,9 @@ export function formatLog(log: LaunchEntry[]): string {
       const used = e.usedMB === null ? '?' : e.usedMB.toFixed(1)
       const quota = e.quotaMB === null ? '?' : e.quotaMB.toFixed(0)
       const kept = e.persisted === null ? '?' : e.persisted ? 'kept' : 'best-effort'
-      return `${when}  ${String(e.books).padStart(3)} books  ${used}/${quota} MB  ${kept}${
+      const cached =
+        e.caches == null ? 'cache ?' : `cache ${e.caches}/${e.cached ?? '?'}`
+      return `${when}  ${String(e.books).padStart(3)} books  ${used}/${quota} MB  ${kept}  ${cached}${
         e.event ? `  ${e.event.toUpperCase()}` : ''
       }`
     })

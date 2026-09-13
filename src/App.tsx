@@ -18,7 +18,7 @@ import {
   writeWatermark,
   type PersistenceState
 } from './lib/db'
-import { appendLaunch } from './lib/diagnostics'
+import { appendLaunch, probeCaches } from './lib/diagnostics'
 import { importFiles } from './lib/import'
 import Library from './components/Library'
 import Reader from './components/Reader'
@@ -118,12 +118,15 @@ export default function App(): ReactNode {
         // settings it will not open for them either, and saying so beats
         // showing a library that appears to be empty.
         setFailure({ kind: 'unreadable', detail: describe(err) })
+        const stores = await probeCaches()
         appendLaunch({
           at: Date.now(),
           books: 0,
           usedMB: null,
           quotaMB: null,
           persisted: state === 'persisted',
+          caches: stores?.caches ?? null,
+          cached: stores?.entries ?? null,
           event: 'unreadable'
         })
         return
@@ -134,12 +137,15 @@ export default function App(): ReactNode {
       // after the next one, the run of entries before it is what says whether
       // the browser was short of room or the database simply failed.
       const usage = await estimateUsage()
+      const stores = await probeCaches()
       appendLaunch({
         at: Date.now(),
         books: (await listBooks().catch(() => [])).length,
         usedMB: usage?.usedMB ?? null,
         quotaMB: usage?.quotaMB ?? null,
         persisted: state === 'persisted',
+        caches: stores?.caches ?? null,
+        cached: stores?.entries ?? null,
         event: trouble?.kind === 'restored' || trouble?.kind === 'vanished'
           ? trouble.kind
           : trouble?.kind === 'unreadable'

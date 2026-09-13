@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import type { BookMeta, LibrarySort } from '../types'
 import type { PersistenceState } from '../lib/db'
-import { formatLog, readLog } from '../lib/diagnostics'
+import { capabilities, formatLog, readLog } from '../lib/diagnostics'
 import { forceUpdate } from '../lib/sw'
 
 /**
@@ -229,7 +229,12 @@ function LibraryTrouble({
  */
 function StorageLog(): ReactNode {
   const log = readLog()
-  const text = formatLog(log)
+  const { opfs, picker } = capabilities()
+  // Included in the copied text, not just on screen: the answer to where the
+  // books should live is in these two flags, and a log pasted without them
+  // leaves the question open.
+  const text = `OPFS: ${opfs ? 'yes' : 'no'} · file picker: ${picker ? 'yes' : 'no'}
+${formatLog(log)}`
   const [copied, setCopied] = useState(false)
 
   if (log.length === 0) {
