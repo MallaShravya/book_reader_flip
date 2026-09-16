@@ -61,6 +61,7 @@ export async function importFile(file: File): Promise<ImportResult> {
     author: 'Unknown author',
     format,
     sizeBytes: file.size,
+    fileName: file.name,
     cover: null,
     addedAt: Date.now(),
     lastOpenedAt: null,

@@ -228,7 +228,7 @@ export default function App(): ReactNode {
 
       setBusy(true)
       try {
-        await replaceBookFile(book, await file.arrayBuffer())
+        await replaceBookFile({ ...book, fileName: file.name }, await file.arrayBuffer())
         await refresh()
         setToast(`"${book.title}" is readable again, still at your place in it.`)
       } catch (err) {
@@ -331,7 +331,14 @@ export default function App(): ReactNode {
             // The reader would get as far as a five-second toast and a blank
             // stage. The shelf knows better before anything is torn down.
             if (missing.has(book.id)) {
-              setToast(`"${book.title}" has lost its file. Hold it down and choose "Find file" to put it back.`)
+              // The filename, where we have it. A book renamed by hand — which
+              // is most of the reason renaming exists — gives no clue at all
+              // about which file on the device it came from.
+              setToast(
+                book.fileName
+                  ? `"${book.title}" has lost its file. Hold it down, choose "Find file", and pick ${book.fileName}.`
+                  : `"${book.title}" has lost its file. Hold it down and choose "Find file" to put it back.`
+              )
               return
             }
             setOpen(book)

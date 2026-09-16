@@ -27,6 +27,19 @@ export interface BookMeta {
   format: BookFormat
   /** Bytes of the original file, for the size readout. */
   sizeBytes: number
+  /**
+   * The file this was imported from, exactly as it was named.
+   *
+   * The web has no such thing as a path — a picked file arrives with a name
+   * and nothing else — so this is the most that can be remembered about where
+   * a book came from. It earns its place when the bytes are lost: the reader
+   * has to find the same file again, and `title` is no help, having been
+   * stripped of its extension, had its underscores smoothed out, and quite
+   * possibly been renamed by hand since.
+   *
+   * Absent on books imported before this was kept.
+   */
+  fileName?: string
   /** data: URL of the cover, if one could be extracted. */
   cover: string | null
   addedAt: number

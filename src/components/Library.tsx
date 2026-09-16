@@ -597,7 +597,7 @@ export default function Library({
                       repairRef.current?.click()
                     }}
                   >
-                    Find file…
+                    {menu.book.fileName ? `Find ${menu.book.fileName}` : 'Find file…'}
                   </button>
                 )}
                 <button className="dropdown-item" onClick={() => setMode('rename')}>

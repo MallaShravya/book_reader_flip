@@ -770,6 +770,16 @@ button {
   color: var(--text);
 }
 
+/*
+  Filenames go in one of these, and a filename is long, unbroken and not the
+  app's to shorten. Wrapping anywhere keeps it inside a 208px menu without
+  hiding the end of it, which is the half that distinguishes two books in a
+  series.
+*/
+.dropdown-item {
+  overflow-wrap: anywhere;
+}
+
 .dropdown-item:active {
   background: var(--surface-2);
 }

@@ -184,16 +184,44 @@ export async function savePagination(key: string, pagination: Pagination): Promi
  */
 const RENAMED_THEMES: Record<string, Theme> = { antique: 'burnt' }
 
+/**
+ * Settings, mirrored beside the shelf.
+ *
+ * They sit in the same database as the books and are lost with them, which is
+ * how a reader comes back from a wipe to a library that remembered where they
+ * were in every book and forgot that they read in Burnt. Three bytes of theme
+ * is not worth losing to an oversight in what we chose to copy.
+ */
+const SETTINGS_MIRROR_KEY = 'reader:settings'
+
+function readSettingsMirror(): Partial<ReaderSettings> {
+  try {
+    const raw = localStorage.getItem(SETTINGS_MIRROR_KEY)
+    const parsed: unknown = raw ? JSON.parse(raw) : null
+    return typeof parsed === 'object' && parsed !== null ? (parsed as Partial<ReaderSettings>) : {}
+  } catch {
+    return {}
+  }
+}
+
 export async function loadSettings(): Promise<ReaderSettings> {
   const stored = await get<Partial<ReaderSettings>>(SETTINGS_KEY)
-  // Merge over defaults so a settings object written by an older build never
-  // leaves a newly added field undefined.
-  const settings = { ...DEFAULT_SETTINGS, ...(stored ?? {}) }
+  // Layered so each source only fills what the one above it lacks: defaults
+  // first, then the mirror, then whatever the database still holds. The
+  // database wins while it has them, and the mirror answers when it has been
+  // emptied — without a separate restore, since nothing here is worth the
+  // ceremony of one.
+  const settings = { ...DEFAULT_SETTINGS, ...readSettingsMirror(), ...(stored ?? {}) }
   const renamed = RENAMED_THEMES[settings.theme]
   return renamed ? { ...settings, theme: renamed } : settings
 }
 
 export async function saveSettings(settings: ReaderSettings): Promise<void> {
+  try {
+    localStorage.setItem(SETTINGS_MIRROR_KEY, JSON.stringify(settings))
+  } catch {
+    /* insurance again: failing to buy it must not stop the setting taking */
+  }
   await set(SETTINGS_KEY, settings)
 }
 
