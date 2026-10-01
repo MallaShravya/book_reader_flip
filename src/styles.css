@@ -640,6 +640,15 @@ button {
 }
 
 .book-cover {
+  /*
+    A button, and a button with no width shrinks to fit its contents rather
+    than filling its parent — form controls size that way. Left to itself the
+    box took its width from the title inside it, and `aspect-ratio` turned that
+    into a height: a one-word title made a narrow, short cover whose shelf rode
+    up above its neighbours, while a long one overflowed the compartment. Books
+    with a cover image hid it, their picture pushing the box out to the clamp.
+  */
+  width: 100%;
   aspect-ratio: 2 / 3;
   border-radius: 6px;
   overflow: hidden;
