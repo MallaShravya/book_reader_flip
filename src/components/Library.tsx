@@ -42,10 +42,23 @@ interface Props {
   /** Ids of books whose file is gone, leaving only a shelf entry. */
   missing: ReadonlySet<string>
   onRepair: (book: BookMeta, file: File) => void
+  /** Take a book off the Continue reading row without touching the book. */
+  onPutAway: (book: BookMeta) => void
 }
 
 /** How many books the recently-read row holds before it starts scrolling. */
 const RECENT_LIMIT = 8
+
+/**
+ * Progress at which a book counts as read to the end.
+ *
+ * Not 1 exactly. Progress is `page / (pageCount - 1)`, so the last page gives
+ * exactly 1 — but it is a float derived from a pagination that is remeasured
+ * whenever the text size or the screen changes, and a book that has been
+ * finished should not reappear in the row because the last division came out a
+ * hair under.
+ */
+const FINISHED = 0.999
 
 /** Niches across the shelf. Must match the grid in styles.css. */
 const SHELF_COLUMNS = 4
@@ -291,7 +304,8 @@ export default function Library({
   onDelete,
   onRename,
   missing,
-  onRepair
+  onRepair,
+  onPutAway
 }: Props): ReactNode {
   const inputRef = useRef<HTMLInputElement>(null)
   const repairRef = useRef<HTMLInputElement>(null)
@@ -359,7 +373,15 @@ export default function Library({
   const recent = useMemo(
     () =>
       books
-        .filter((book) => book.lastOpenedAt !== null)
+        .filter(
+          (book) =>
+            book.lastOpenedAt !== null &&
+            // The row is for books still being read. A finished one has nothing
+            // to continue, and one put away by hand was an explicit answer to
+            // the same question.
+            book.progress < FINISHED &&
+            !book.hiddenFromRecent
+        )
         .sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))
         .slice(0, RECENT_LIMIT),
     [books]
@@ -571,6 +593,7 @@ export default function Library({
                       book={book}
                       missing={missing.has(book.id)}
                       onOpen={() => onOpen(book)}
+                      onLongPress={(at) => openMenu(book, at)}
                     />
                     <div className="book-title">{book.title}</div>
                     <Progress value={book.progress} />
@@ -661,6 +684,17 @@ export default function Library({
                     }}
                   >
                     {menu.book.fileName ? `Find ${menu.book.fileName}` : 'Find file…'}
+                  </button>
+                )}
+                {recent.some((b) => b.id === menu.book.id) && (
+                  <button
+                    className="dropdown-item"
+                    onClick={() => {
+                      onPutAway(menu.book)
+                      closeMenu()
+                    }}
+                  >
+                    Not reading this
                   </button>
                 )}
                 <button className="dropdown-item" onClick={() => setMode('rename')}>

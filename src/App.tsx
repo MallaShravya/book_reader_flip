@@ -253,6 +253,21 @@ export default function App(): ReactNode {
   )
 
   /**
+   * Take a book off the Continue reading row.
+   *
+   * The book itself is untouched — still on the shelf, still holding the place
+   * it had reached. Only the claim that it is being read now is withdrawn, and
+   * opening it again withdraws the withdrawal.
+   */
+  const onPutAway = useCallback(
+    async (book: BookMeta) => {
+      await updateMeta({ ...book, hiddenFromRecent: true })
+      await refresh()
+    },
+    [refresh]
+  )
+
+  /**
    * Rename a book.
    *
    * The title is the app's own label, not something read back out of the
@@ -300,7 +315,10 @@ export default function App(): ReactNode {
           // clearing it would lose an EPUB's place on a stray call.
           lastAnchor: anchor ?? book.lastAnchor,
           progress: pageCount > 1 ? page / (pageCount - 1) : 0,
-          lastOpenedAt: Date.now()
+          lastOpenedAt: Date.now(),
+          // Picking a book back up is the plainest statement that it belongs
+          // on the row, so it overrides having been put away by hand.
+          hiddenFromRecent: false
         }
         void updateMeta(updated)
       }, 600)
@@ -339,6 +357,7 @@ export default function App(): ReactNode {
           onImport={onImport}
           missing={missing}
           onRepair={onRepair}
+          onPutAway={(book) => void onPutAway(book)}
           onOpen={(book) => {
             // The reader would get as far as a five-second toast and a blank
             // stage. The shelf knows better before anything is torn down.

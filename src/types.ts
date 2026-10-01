@@ -55,6 +55,17 @@ export interface BookMeta {
   lastAnchor?: ReadingAnchor
   /** Pagination is layout-dependent, so this is only a hint for the progress bar. */
   pageCount: number
+  /**
+   * Taken off the Continue reading row by hand.
+   *
+   * Separate from deleting the book and from its progress: a reader may be
+   * done with something without having reached the end of it, and the row is
+   * meant to answer "what am I in the middle of", which only they can settle.
+   *
+   * Cleared again by reading it, since picking a book back up is the plainest
+   * possible statement that it belongs there.
+   */
+  hiddenFromRecent?: boolean
 }
 
 /** One flippable leaf, whatever the source format. */
