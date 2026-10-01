@@ -130,7 +130,13 @@ button {
 .library {
   flex: 1;
   overflow-y: auto;
-  padding: 1.25rem 1rem 4rem;
+  /*
+    No padding under the shelf. The case is the last thing on the screen and
+    is sized to reach the bottom of it, so a gap below would be the floor of
+    the room showing under the furniture — which is exactly the abrupt stop
+    the measured rows exist to remove.
+  */
+  padding: 1.25rem 1rem 0;
 }
 
 .library-head {
@@ -1606,9 +1612,17 @@ button {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
+/*
+  The line shown to someone with nothing on their shelves.
+
+  The padding used to be 3rem because this was the only thing on the screen
+  and needed to sit away from the edges. It is not alone any more — an empty
+  bookcase stands under it — so the space above the furniture is now a gap in
+  the room rather than breathing room, and wants to be small.
+*/
 .empty {
   text-align: center;
   color: var(--text-faint);
-  padding: 3rem 1rem;
+  padding: 1.25rem 1rem 1.5rem;
   line-height: 1.6;
 }

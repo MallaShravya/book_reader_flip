@@ -1,4 +1,11 @@
-import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactNode
+} from 'react'
 import type { BookMeta, LibrarySort } from '../types'
 import type { PersistenceState } from '../lib/db'
 import { capabilities, formatLog, readLog } from '../lib/diagnostics'
@@ -288,6 +295,16 @@ export default function Library({
 }: Props): ReactNode {
   const inputRef = useRef<HTMLInputElement>(null)
   const repairRef = useRef<HTMLInputElement>(null)
+  const shelfRef = useRef<HTMLDivElement>(null)
+  /**
+   * How many rows of compartments it takes to reach the bottom of the screen.
+   *
+   * Measured rather than assumed: the number depends on where the shelf
+   * starts, which moves with the recently-read row, the notices above it and
+   * the height of the phone. One is the floor, so the first paint has
+   * something to measure.
+   */
+  const [visibleRows, setVisibleRows] = useState(1)
   const [showLog, setShowLog] = useState(false)
   /** Which book the repair picker was opened for. */
   const repairFor = useRef<BookMeta | null>(null)
@@ -375,10 +392,54 @@ export default function Library({
    * room for more.
    */
   const empties = useMemo(() => {
-    const remainder = shelf.length % SHELF_COLUMNS
-    const toRowEnd = remainder === 0 ? 0 : SHELF_COLUMNS - remainder
-    return toRowEnd + SHELF_COLUMNS
-  }, [shelf.length])
+    const rowsOfBooks = Math.ceil(shelf.length / SHELF_COLUMNS)
+    // Never fewer than the spare row: a case that ends exactly where the books
+    // do reads as a container that happens to be book-shaped.
+    const rows = Math.max(rowsOfBooks + 1, visibleRows)
+    return rows * SHELF_COLUMNS - shelf.length
+  }, [shelf.length, visibleRows])
+
+  /**
+   * Keep the case tall enough to reach the bottom of the screen.
+   *
+   * A niche's height comes from the column width, so it changes with the
+   * phone, and where the shelf begins changes with whatever is above it. Both
+   * are measured from the laid-out page instead of being worked out from the
+   * grid by hand, which would be a second copy of the rules in the stylesheet
+   * and would drift from them.
+   *
+   * The offset is taken against the scroll container's own top rather than the
+   * viewport's, because the viewport answer changes as the page scrolls — and
+   * a case that grew by a row every time it was scrolled would never stop.
+   */
+  useLayoutEffect(() => {
+    const grid = shelfRef.current
+    const scroller = grid?.closest('.library')
+    if (!grid || !(scroller instanceof HTMLElement)) return
+
+    const measure = (): void => {
+      const niche = grid.querySelector('.book')
+      if (!niche) return
+      const gap = parseFloat(getComputedStyle(grid).rowGap) || 0
+      const rowHeight = niche.getBoundingClientRect().height + gap
+      if (rowHeight <= 0) return
+
+      const from =
+        grid.getBoundingClientRect().top -
+        scroller.getBoundingClientRect().top +
+        scroller.scrollTop
+      const room = scroller.clientHeight - from
+      setVisibleRows(Math.max(1, Math.ceil(room / rowHeight)))
+    }
+
+    measure()
+    // The shelf's own size is not what is being watched — the scroller's is,
+    // and the grid's only so that a niche appearing gives something to measure.
+    const observer = new ResizeObserver(measure)
+    observer.observe(scroller)
+    observer.observe(grid)
+    return () => observer.disconnect()
+  }, [books.length, recent.length, failure, persistence])
 
   return (
     <div
@@ -479,19 +540,20 @@ export default function Library({
         />
       </div>
 
-      {books.length === 0 ? (
-        // Silent when something has already been said above it. Inviting an
-        // import under a notice about books that may still exist is how a
-        // library ends up with two of everything.
-        failure ? null : (
-          <div className="empty">
-            Add an EPUB or a PDF to get started.
-            <br />
-            Your books never leave this device.
-          </div>
-        )
-      ) : (
-        <>
+      {/*
+        Silent when something has already been said above it. Inviting an
+        import under a notice about books that may still exist is how a
+        library ends up with two of everything.
+      */}
+      {books.length === 0 && !failure && (
+        <div className="empty">
+          Add an EPUB or a PDF to get started.
+          <br />
+          Your books never leave this device.
+        </div>
+      )}
+
+      <>
           {/*
             Only appears once something has been read. Before that it would
             either be empty or repeat the shelf below it word for word.
@@ -521,17 +583,19 @@ export default function Library({
           <section className="library-section">
             <div className="section-head">
               <h2>All books</h2>
-              <div className="seg seg-compact">
-                <button aria-pressed={sort === 'title'} onClick={() => onSortChange('title')}>
-                  A–Z
-                </button>
-                <button aria-pressed={sort === 'added'} onClick={() => onSortChange('added')}>
-                  Added
-                </button>
-              </div>
+              {books.length > 0 && (
+                <div className="seg seg-compact">
+                  <button aria-pressed={sort === 'title'} onClick={() => onSortChange('title')}>
+                    A–Z
+                  </button>
+                  <button aria-pressed={sort === 'added'} onClick={() => onSortChange('added')}>
+                    Added
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="shelf shelf-wood">
+            <div className="shelf shelf-wood" ref={shelfRef}>
               {shelf.map((book) => (
                 <div key={book.id} className="book">
                   <Cover
@@ -568,7 +632,6 @@ export default function Library({
             </div>
           </section>
         </>
-      )}
 
       {/*
         What a long press opens. A dialog over the library rather than
