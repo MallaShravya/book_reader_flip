@@ -58,7 +58,19 @@ export default function App(): ReactNode {
    * books that were quite possibly still sitting there, which duplicates them.
    * Each of the three now says which it is.
    */
-  const refresh = useCallback(async (): Promise<LibraryFailure | null> => {
+  const refresh = useCallback(async (
+    /**
+     * Set when the library changed because the reader asked it to.
+     *
+     * An empty shelf means two opposite things, and only the caller knows
+     * which: the browser threw the books away, or the reader removed the last
+     * one. The note this compares against was written before the change, so
+     * without being told, deleting a final book looks exactly like a wipe —
+     * and the mirror puts it straight back, which is the opposite of what was
+     * asked for.
+     */
+    deliberate = false
+  ): Promise<LibraryFailure | null> => {
     let list: BookMeta[]
     try {
       list = await listBooks()
@@ -71,7 +83,7 @@ export default function App(): ReactNode {
     const note = readWatermark()
     let trouble: LibraryFailure | null = null
 
-    if (list.length === 0 && note !== null && note.books > 0) {
+    if (!deliberate && list.length === 0 && note !== null && note.books > 0) {
       // The library was emptied out from under us. Put back what was kept
       // outside it: the books come back with their places intact, each one
       // wanting its file again.
@@ -203,7 +215,7 @@ export default function App(): ReactNode {
     async (book: BookMeta) => {
       await deleteBook(book.id)
       if (open?.id === book.id) setOpen(null)
-      await refresh()
+      await refresh(true)
     },
     [open, refresh]
   )
