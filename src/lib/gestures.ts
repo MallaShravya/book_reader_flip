@@ -76,6 +76,73 @@ const MAX_ZOOM = 4
 /** Two taps closer together than this, while zoomed, mean "put it back". */
 const DOUBLE_TAP_MS = 300
 
+/**
+ * How long a finger must rest on the text before it means "select this".
+ *
+ * Text is unselectable until this fires. A page is a thing you touch
+ * constantly — to turn it, to put the controls away — and a tap that
+ * highlighted a word every time made reading feel like being interrupted.
+ *
+ * Longer than the shelf's 450ms hold. Pressing a book is a deliberate act with
+ * nothing else it could mean, while a finger resting on a page is usually a
+ * page turn being thought about.
+ */
+const SELECT_HOLD_MS = 500
+
+/** Movement that makes a hold a drag instead, cancelling the selection. */
+const SELECT_SLOP = 10
+
+/**
+ * Select the word under a point.
+ *
+ * The browser's own long-press selection cannot be used: it only fires on text
+ * that is selectable at the moment of the press, and leaving the text
+ * selectable is exactly what makes a tap select it. So selection is switched
+ * on at the end of the hold and the first word chosen here, after which the
+ * native handles and the copy toolbar take over as usual.
+ */
+function selectWordAt(x: number, y: number): boolean {
+  const selection = window.getSelection()
+  if (!selection) return false
+
+  // `caretRangeFromPoint` is Chrome and Safari; Firefox has its own spelling.
+  // Neither is in the standard, and there is no third way to turn a point on
+  // the screen into a position in the text.
+  type WithCaret = Document & {
+    caretRangeFromPoint?: (x: number, y: number) => Range | null
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
+  }
+  const doc = document as WithCaret
+
+  let range: Range | null = null
+  if (typeof doc.caretRangeFromPoint === 'function') {
+    range = doc.caretRangeFromPoint(x, y)
+  } else if (typeof doc.caretPositionFromPoint === 'function') {
+    const position = doc.caretPositionFromPoint(x, y)
+    if (position) {
+      range = document.createRange()
+      range.setStart(position.offsetNode, position.offset)
+      range.collapse(true)
+    }
+  }
+  if (!range || range.startContainer.nodeType !== Node.TEXT_NODE) return false
+
+  selection.removeAllRanges()
+  selection.addRange(range)
+
+  // Grow the caret to the word around it. `modify` is not standardised either,
+  // so a browser without it is left with the caret — selectable, just not
+  // pre-filled, which is a far better failure than nothing happening at all.
+  const withModify = selection as Selection & {
+    modify?: (alter: string, direction: string, granularity: string) => void
+  }
+  if (typeof withModify.modify === 'function') {
+    withModify.modify('move', 'backward', 'word')
+    withModify.modify('extend', 'forward', 'word')
+  }
+  return true
+}
+
 interface Point {
   x: number
   y: number
@@ -94,6 +161,32 @@ export function attachFlipGestures(
   handlers: GestureHandlers = {}
 ): { detach: () => void; resetZoom: () => void } {
   const surface = (mount.querySelector('.stf__block') as HTMLElement | null) ?? mount
+
+  /** Counting down to a selection, or null when no finger is resting. */
+  let holdTimer: number | undefined
+  /** A selection was started by this gesture, so it must not turn a page. */
+  let selecting = false
+
+  /**
+   * Hand the text to the browser, or take it back.
+   *
+   * The attribute drives a rule in the stylesheet rather than an inline style
+   * so the two states live next to each other where they can be read together.
+   */
+  const allowSelection = (on: boolean): void => {
+    if (on) surface.dataset.select = 'on'
+    else delete surface.dataset.select
+  }
+
+  const clearSelection = (): void => {
+    window.getSelection()?.removeAllRanges()
+    allowSelection(false)
+  }
+
+  const cancelHold = (): void => {
+    window.clearTimeout(holdTimer)
+    holdTimer = undefined
+  }
 
   let pointerId: number | null = null
   let start: Point = { x: 0, y: 0 }
@@ -383,6 +476,17 @@ export function attachFlipGestures(
     const tag = (e.target as HTMLElement).tagName?.toLowerCase()
     if (tag === 'a' || tag === 'button') return
 
+    cancelHold()
+    selecting = false
+
+    // Touching the page while something is highlighted dismisses it, and does
+    // nothing else. Turning a page out from under a selection would leave the
+    // handles pointing at text that is no longer there.
+    if (!window.getSelection()?.isCollapsed) {
+      clearSelection()
+      return
+    }
+
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
 
     // A second finger always means a pinch, whatever the first was doing.
@@ -412,10 +516,35 @@ export function attachFlipGestures(
 
     // Note: startUserTouch is deliberately NOT called yet — see onPointerMove.
     surface.setPointerCapture?.(e.pointerId)
+
+    const { clientX, clientY } = e
+    holdTimer = window.setTimeout(() => {
+      // Capture has to go back before the browser can run its own selection
+      // UI: while this element holds the pointer, the drag handles never see
+      // the finger that is about to reach for them.
+      surface.releasePointerCapture?.(e.pointerId)
+      allowSelection(true)
+      if (selectWordAt(clientX, clientY)) {
+        selecting = true
+        // The only feedback that the mode changed. Without it a hold that
+        // selects and a hold that does nothing feel identical until the
+        // finger lifts.
+        navigator.vibrate?.(8)
+      } else {
+        allowSelection(false)
+      }
+    }, SELECT_HOLD_MS)
   }
 
   const onPointerMove = (e: PointerEvent): void => {
     if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+    // A finger that travels is turning a page, not resting on a word.
+    if (holdTimer !== undefined && e.pointerId === pointerId) {
+      const here = toLocal(e.clientX, e.clientY)
+      if (Math.hypot(here.x - start.x, here.y - start.y) > SELECT_SLOP) cancelHold()
+    }
+    if (selecting) return
 
     if (pinch) {
       movePinch()
@@ -499,6 +628,16 @@ export function attachFlipGestures(
 
   const onPointerUp = (e: PointerEvent): void => {
     pointers.delete(e.pointerId)
+    cancelHold()
+
+    // The hold already decided what this gesture was. Letting it fall through
+    // would turn a page or put the controls away under the highlight that was
+    // just made, and the text stays selectable so the handles can be dragged.
+    if (selecting) {
+      selecting = false
+      pointerId = null
+      return
+    }
 
     if (pinch) {
       if (pointers.size >= 2) return
@@ -598,6 +737,8 @@ export function attachFlipGestures(
 
   const onPointerCancel = (e: PointerEvent): void => {
     pointers.delete(e.pointerId)
+    cancelHold()
+    selecting = false
     if (pointers.size < 2) pinch = null
     panning = null
 
@@ -624,6 +765,8 @@ export function attachFlipGestures(
     // The pump holds a reference to a flipbook that teardown is about to
     // destroy, so it has to stop with the listeners.
     stopPump()
+    cancelHold()
+    clearSelection()
     surface.removeEventListener('pointerdown', onPointerDown)
     surface.removeEventListener('pointermove', onPointerMove)
     surface.removeEventListener('pointerup', onPointerUp)

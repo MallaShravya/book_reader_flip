@@ -1077,6 +1077,27 @@ button {
   height: 100%;
 }
 
+/*
+  Text is not selectable until a finger has rested on it.
+
+  A page is touched constantly — to turn it, to put the controls away — and
+  while the text was selectable every one of those taps could highlight a
+  word. The gesture layer switches this on at the end of a deliberate hold and
+  off again at the next touch, so the browser's handles and copy toolbar are
+  available exactly when they were asked for.
+*/
+.flip-page,
+.flip-page * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.stf__block[data-select='on'] .flip-page,
+.stf__block[data-select='on'] .flip-page * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 .flip-page {
   background: var(--page-bg);
   color: var(--page-text);
