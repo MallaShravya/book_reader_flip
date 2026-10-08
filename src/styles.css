@@ -939,6 +939,39 @@ button {
 }
 
 /*
+  The grab circles at each end of a highlight.
+
+  Hung below the line rather than straddling it, so a finger on one is not
+  covering the words whose ends are being judged. The box is the touch target
+  and the dot inside it is what is seen — a 22px circle is small for a
+  fingertip, and growing the visible dot to a comfortable target would put a
+  blot in the middle of the text.
+
+  Offset by half their width so the circle is centred on the end of the
+  selection rather than starting there.
+*/
+.selection-handle {
+  position: fixed;
+  z-index: 69;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Nothing here should ever become a selection of its own. */
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.selection-handle span {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+/*
   The tools for a highlight.
 
   Pinned to the viewport and centred on the selection, which is why `left` is

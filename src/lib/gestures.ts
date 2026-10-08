@@ -1,4 +1,5 @@
 import type { PageFlip } from 'page-flip'
+import { extendSelectionTo, selectionShape, selectWordAt, type SelectionShape } from './selection'
 
 /**
  * Page-turn interaction.
@@ -77,7 +78,7 @@ export interface GestureHandlers {
    * no copy bar from the browser, since those are only drawn for selections
    * the browser made itself.
    */
-  onSelect?: (text: string, at: DOMRect | null) => void
+  onSelect?: (shape: SelectionShape | null) => void
 }
 
 /** Furthest in a pinch may go. Past this a PDF is grain and text is a wall. */
@@ -100,96 +101,6 @@ const SELECT_HOLD_MS = 500
 
 /** Movement that makes a hold a drag instead, cancelling the selection. */
 const SELECT_SLOP = 10
-
-/** Where the current selection sits, or null when there is nothing in it. */
-function selectionRect(): DOMRect | null {
-  const selection = window.getSelection()
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null
-  const rect = selection.getRangeAt(0).getBoundingClientRect()
-  return rect.width === 0 && rect.height === 0 ? null : rect
-}
-
-/**
- * Stretch the highlight to a point, keeping where it started.
- *
- * Takes the place of the drag handles. `extend` moves the focus of the
- * selection and leaves its anchor alone, which is exactly a handle being
- * dragged — so a finger that holds and then travels grows the selection
- * instead of turning the page.
- */
-function extendSelectionTo(x: number, y: number): void {
-  const selection = window.getSelection()
-  if (!selection || selection.rangeCount === 0) return
-
-  type WithCaret = Document & {
-    caretRangeFromPoint?: (x: number, y: number) => Range | null
-    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
-  }
-  const doc = document as WithCaret
-  const range =
-    doc.caretRangeFromPoint?.(x, y) ??
-    (() => {
-      const position = doc.caretPositionFromPoint?.(x, y)
-      if (!position) return null
-      const made = document.createRange()
-      made.setStart(position.offsetNode, position.offset)
-      return made
-    })()
-
-  if (!range || range.startContainer.nodeType !== Node.TEXT_NODE) return
-  selection.extend(range.startContainer, range.startOffset)
-}
-
-/**
- * Select the word under a point.
- *
- * The browser's own long-press selection cannot be used: it only fires on text
- * that is selectable at the moment of the press, and leaving the text
- * selectable is exactly what makes a tap select it. So selection is switched
- * on at the end of the hold and the first word chosen here, after which the
- * native handles and the copy toolbar take over as usual.
- */
-function selectWordAt(x: number, y: number): boolean {
-  const selection = window.getSelection()
-  if (!selection) return false
-
-  // `caretRangeFromPoint` is Chrome and Safari; Firefox has its own spelling.
-  // Neither is in the standard, and there is no third way to turn a point on
-  // the screen into a position in the text.
-  type WithCaret = Document & {
-    caretRangeFromPoint?: (x: number, y: number) => Range | null
-    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
-  }
-  const doc = document as WithCaret
-
-  let range: Range | null = null
-  if (typeof doc.caretRangeFromPoint === 'function') {
-    range = doc.caretRangeFromPoint(x, y)
-  } else if (typeof doc.caretPositionFromPoint === 'function') {
-    const position = doc.caretPositionFromPoint(x, y)
-    if (position) {
-      range = document.createRange()
-      range.setStart(position.offsetNode, position.offset)
-      range.collapse(true)
-    }
-  }
-  if (!range || range.startContainer.nodeType !== Node.TEXT_NODE) return false
-
-  selection.removeAllRanges()
-  selection.addRange(range)
-
-  // Grow the caret to the word around it. `modify` is not standardised either,
-  // so a browser without it is left with the caret — selectable, just not
-  // pre-filled, which is a far better failure than nothing happening at all.
-  const withModify = selection as Selection & {
-    modify?: (alter: string, direction: string, granularity: string) => void
-  }
-  if (typeof withModify.modify === 'function') {
-    withModify.modify('move', 'backward', 'word')
-    withModify.modify('extend', 'forward', 'word')
-  }
-  return true
-}
 
 interface Point {
   x: number
@@ -227,14 +138,13 @@ export function attachFlipGestures(
   }
 
   const reportSelection = (): void => {
-    const text = window.getSelection()?.toString() ?? ''
-    handlers.onSelect?.(text.trim(), text.trim() ? selectionRect() : null)
+    handlers.onSelect?.(selectionShape())
   }
 
   const clearSelection = (): void => {
     window.getSelection()?.removeAllRanges()
     allowSelection(false)
-    handlers.onSelect?.('', null)
+    handlers.onSelect?.(null)
   }
 
   const cancelHold = (): void => {

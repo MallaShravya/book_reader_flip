@@ -10,6 +10,14 @@ import { PdfBook } from '../lib/pdf'
 import { computeLayout, createFlipbook } from '../lib/flipbook'
 import { attachFlipGestures, DEFAULT_THRESHOLDS, type ZoomState } from '../lib/gestures'
 import {
+  caretAt,
+  selectBetween,
+  selectionEnds,
+  selectionShape,
+  type SelectionShape,
+  type TextPoint
+} from '../lib/selection'
+import {
   enterFullscreen,
   exitFullscreen,
   isFullscreen,
@@ -69,6 +77,18 @@ const BURN_MARGIN = 0.1
 /** Tall enough for the bar, with room to clear the text it points at. */
 const TOOLS_HEIGHT = 46
 
+/** The grab circle below each end of a highlight. */
+const HANDLE_SIZE = 22
+
+/**
+ * How far above the finger the text is read while a handle is dragged.
+ *
+ * The handle hangs below the line it marks, and a finger covers the handle, so
+ * the point being touched is well under the words. Sampling the caret there
+ * would put the end of the selection on the line below — or on nothing at all.
+ */
+const HANDLE_REACH = 14
+
 /**
  * The tools for a highlight: ours, not the browser's.
  *
@@ -81,19 +101,25 @@ const TOOLS_HEIGHT = 46
  * is transformed while it turns, and anything positioned inside it inherits
  * the fold.
  */
-function SelectionTools({ selection }: { selection: { text: string; at: DOMRect } }): ReactNode {
+function SelectionTools({ selection }: { selection: SelectionShape }): ReactNode {
   const [copied, setCopied] = useState(false)
 
   // Above the highlight, unless that would put it off the top of the screen,
   // in which case below — the one place it is certain not to cover the words
-  // being looked at.
-  const above = selection.at.top > TOOLS_HEIGHT + 8
-  const top = above ? selection.at.top - TOOLS_HEIGHT : selection.at.bottom + 8
+  // being looked at. Below also has to clear the handle hanging there.
+  const above = selection.bounds.top > TOOLS_HEIGHT + 8
+  const top = above ? selection.bounds.top - TOOLS_HEIGHT : selection.bounds.bottom + HANDLE_SIZE
 
   return (
     <div
       className="selection-tools"
-      style={{ top, left: Math.max(8, Math.min(window.innerWidth - 8, selection.at.left + selection.at.width / 2)) }}
+      style={{
+        top,
+        left: Math.max(
+          8,
+          Math.min(window.innerWidth - 8, selection.bounds.left + selection.bounds.width / 2)
+        )
+      }}
       // The bar must not be what dismisses the highlight it belongs to.
       onPointerDown={(e) => e.stopPropagation()}
     >
@@ -106,6 +132,69 @@ function SelectionTools({ selection }: { selection: { text: string; at: DOMRect 
       >
         {copied ? 'Copied' : 'Copy'}
       </button>
+    </div>
+  )
+}
+
+/**
+ * One end of a highlight, as something to take hold of.
+ *
+ * The browser's handles cannot be used — it draws none for a selection it did
+ * not make — and without them a highlight can only ever be the word that was
+ * pressed and whatever the same unbroken gesture swept up. Lifting a finger
+ * would end the matter. These are what make it editable afterwards.
+ *
+ * Each drags its own end and leaves the other where it is, and dragging one
+ * past the other turns the selection inside out rather than collapsing it,
+ * which is what a reader expects from having used the real ones.
+ */
+function SelectionHandle({
+  edge,
+  at,
+  onChange
+}: {
+  edge: 'start' | 'end'
+  at: DOMRect
+  onChange: (shape: SelectionShape | null) => void
+}): ReactNode {
+  /** The end *not* being dragged, which the selection is rebuilt against. */
+  const anchor = useRef<TextPoint | null>(null)
+
+  const x = edge === 'start' ? at.left : at.right
+  const y = at.bottom
+
+  return (
+    <div
+      className="selection-handle"
+      style={{ left: x, top: y, width: HANDLE_SIZE, height: HANDLE_SIZE }}
+      onPointerDown={(e) => {
+        // The page beneath must not see this: its own pointerdown dismisses
+        // the highlight, which would take away the thing being dragged.
+        e.stopPropagation()
+        e.preventDefault()
+        const ends = selectionEnds()
+        if (!ends) return
+        anchor.current = edge === 'start' ? ends.to : ends.from
+        e.currentTarget.setPointerCapture(e.pointerId)
+      }}
+      onPointerMove={(e) => {
+        if (!anchor.current) return
+        e.stopPropagation()
+        const caret = caretAt(e.clientX, e.clientY - HANDLE_REACH)
+        if (!caret) return
+        selectBetween(anchor.current, caret)
+        onChange(selectionShape())
+      }}
+      onPointerUp={(e) => {
+        anchor.current = null
+        e.currentTarget.releasePointerCapture?.(e.pointerId)
+      }}
+      onPointerCancel={() => {
+        anchor.current = null
+      }}
+      aria-hidden="true"
+    >
+      <span />
     </div>
   )
 }
@@ -240,10 +329,10 @@ export default function Reader({
    * selection is made inside the gesture layer, and a React tree has no other
    * way to hear about it.
    */
-  const [selection, setSelection] = useState<{ text: string; at: DOMRect } | null>(null)
+  const [selection, setSelection] = useState<SelectionShape | null>(null)
 
-  const onSelect = useCallback((text: string, at: DOMRect | null): void => {
-    setSelection(text && at ? { text, at } : null)
+  const onSelect = useCallback((shape: SelectionShape | null): void => {
+    setSelection(shape)
   }, [])
 
   const toggleFullscreen = useCallback((): void => {
@@ -823,7 +912,13 @@ export default function Reader({
       data-fullscreen={fullscreen ? 'on' : 'off'}
       data-chrome={chromeHidden ? 'hidden' : 'shown'}
     >
-      {selection && <SelectionTools selection={selection} />}
+      {selection && (
+        <>
+          <SelectionTools selection={selection} />
+          <SelectionHandle edge="start" at={selection.start} onChange={setSelection} />
+          <SelectionHandle edge="end" at={selection.end} onChange={setSelection} />
+        </>
+      )}
 
       <div className="reader-bar reader-bar-top">
         <button className="icon-btn" onClick={onClose} aria-label="Back to library">
