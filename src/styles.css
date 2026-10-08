@@ -938,6 +938,41 @@ button {
   touch-action: none;
 }
 
+/*
+  The tools for a highlight.
+
+  Pinned to the viewport and centred on the selection, which is why `left` is
+  a transform rather than the box's own edge: the bar's width depends on what
+  is in it, and the anchor is the middle of the highlighted words.
+
+  Above the controls' z-index so it is reachable in full screen, where the
+  bars are faded out and nothing else on the page can be tapped.
+*/
+.selection-tools {
+  position: fixed;
+  z-index: 70;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--surface-2);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+}
+
+.selection-tools button {
+  padding: 0.5rem 0.85rem;
+  border-radius: 7px;
+  font-size: 0.88rem;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.selection-tools button:active {
+  background: var(--surface-2);
+}
+
 /* ------------------------------------------------------------- turn buttons */
 
 /*
@@ -1090,6 +1125,8 @@ button {
 .flip-page * {
   user-select: none;
   -webkit-user-select: none;
+  /* Belt to the dragstart handler's braces: a page is never dragged anywhere. */
+  -webkit-user-drag: none;
 }
 
 .stf__block[data-select='on'] .flip-page,

@@ -66,6 +66,50 @@ const RESIZE_EPSILON = 64
  */
 const BURN_MARGIN = 0.1
 
+/** Tall enough for the bar, with room to clear the text it points at. */
+const TOOLS_HEIGHT = 46
+
+/**
+ * The tools for a highlight: ours, not the browser's.
+ *
+ * Chrome draws handles and a copy bar only for selections it made itself, and
+ * it will not make one here — leaving the text selectable is what let a stray
+ * tap highlight a word, which is the thing being fixed. So the selection is
+ * scripted, and everything that normally comes with one has to be too.
+ *
+ * Fixed to the viewport rather than placed near the text in the page: a leaf
+ * is transformed while it turns, and anything positioned inside it inherits
+ * the fold.
+ */
+function SelectionTools({ selection }: { selection: { text: string; at: DOMRect } }): ReactNode {
+  const [copied, setCopied] = useState(false)
+
+  // Above the highlight, unless that would put it off the top of the screen,
+  // in which case below — the one place it is certain not to cover the words
+  // being looked at.
+  const above = selection.at.top > TOOLS_HEIGHT + 8
+  const top = above ? selection.at.top - TOOLS_HEIGHT : selection.at.bottom + 8
+
+  return (
+    <div
+      className="selection-tools"
+      style={{ top, left: Math.max(8, Math.min(window.innerWidth - 8, selection.at.left + selection.at.width / 2)) }}
+      // The bar must not be what dismisses the highlight it belongs to.
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <button
+        onClick={() => {
+          void navigator.clipboard
+            ?.writeText(selection.text)
+            .then(() => setCopied(true), () => setCopied(false))
+        }}
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </div>
+  )
+}
+
 export default function Reader({
   book,
   settings,
@@ -187,6 +231,19 @@ export default function Reader({
    */
   const onCenterTap = useCallback((): void => {
     setChromeHidden((hidden) => !hidden)
+  }, [])
+
+  /**
+   * What is highlighted on the page, and where to put the tools for it.
+   *
+   * Held here rather than read from the document when the bar renders: the
+   * selection is made inside the gesture layer, and a React tree has no other
+   * way to hear about it.
+   */
+  const [selection, setSelection] = useState<{ text: string; at: DOMRect } | null>(null)
+
+  const onSelect = useCallback((text: string, at: DOMRect | null): void => {
+    setSelection(text && at ? { text, at } : null)
   }, [])
 
   const toggleFullscreen = useCallback((): void => {
@@ -521,7 +578,7 @@ export default function Reader({
           DEFAULT_THRESHOLDS,
           // Stable across renders, so this does not drag the build effect
           // into re-running every time the bars are toggled.
-          { onCenterTap, onZoom }
+          { onCenterTap, onZoom, onSelect }
         )
 
         /*
@@ -766,6 +823,8 @@ export default function Reader({
       data-fullscreen={fullscreen ? 'on' : 'off'}
       data-chrome={chromeHidden ? 'hidden' : 'shown'}
     >
+      {selection && <SelectionTools selection={selection} />}
+
       <div className="reader-bar reader-bar-top">
         <button className="icon-btn" onClick={onClose} aria-label="Back to library">
           ‹

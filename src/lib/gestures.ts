@@ -69,6 +69,15 @@ export interface GestureHandlers {
   onCenterTap?: () => void
   /** Fires whenever the pinch or the pan moves. */
   onZoom?: (state: ZoomState) => void
+  /**
+   * What is highlighted, and where it sits on the screen.
+   *
+   * Called with empty text when the highlight goes. The reader uses it to put
+   * its own tools over the selection: a scripted selection gets no handles and
+   * no copy bar from the browser, since those are only drawn for selections
+   * the browser made itself.
+   */
+  onSelect?: (text: string, at: DOMRect | null) => void
 }
 
 /** Furthest in a pinch may go. Past this a PDF is grain and text is a wall. */
@@ -91,6 +100,45 @@ const SELECT_HOLD_MS = 500
 
 /** Movement that makes a hold a drag instead, cancelling the selection. */
 const SELECT_SLOP = 10
+
+/** Where the current selection sits, or null when there is nothing in it. */
+function selectionRect(): DOMRect | null {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null
+  const rect = selection.getRangeAt(0).getBoundingClientRect()
+  return rect.width === 0 && rect.height === 0 ? null : rect
+}
+
+/**
+ * Stretch the highlight to a point, keeping where it started.
+ *
+ * Takes the place of the drag handles. `extend` moves the focus of the
+ * selection and leaves its anchor alone, which is exactly a handle being
+ * dragged — so a finger that holds and then travels grows the selection
+ * instead of turning the page.
+ */
+function extendSelectionTo(x: number, y: number): void {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return
+
+  type WithCaret = Document & {
+    caretRangeFromPoint?: (x: number, y: number) => Range | null
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
+  }
+  const doc = document as WithCaret
+  const range =
+    doc.caretRangeFromPoint?.(x, y) ??
+    (() => {
+      const position = doc.caretPositionFromPoint?.(x, y)
+      if (!position) return null
+      const made = document.createRange()
+      made.setStart(position.offsetNode, position.offset)
+      return made
+    })()
+
+  if (!range || range.startContainer.nodeType !== Node.TEXT_NODE) return
+  selection.extend(range.startContainer, range.startOffset)
+}
 
 /**
  * Select the word under a point.
@@ -178,9 +226,15 @@ export function attachFlipGestures(
     else delete surface.dataset.select
   }
 
+  const reportSelection = (): void => {
+    const text = window.getSelection()?.toString() ?? ''
+    handlers.onSelect?.(text.trim(), text.trim() ? selectionRect() : null)
+  }
+
   const clearSelection = (): void => {
     window.getSelection()?.removeAllRanges()
     allowSelection(false)
+    handlers.onSelect?.('', null)
   }
 
   const cancelHold = (): void => {
@@ -519,13 +573,15 @@ export function attachFlipGestures(
 
     const { clientX, clientY } = e
     holdTimer = window.setTimeout(() => {
-      // Capture has to go back before the browser can run its own selection
-      // UI: while this element holds the pointer, the drag handles never see
-      // the finger that is about to reach for them.
-      surface.releasePointerCapture?.(e.pointerId)
+      // The pointer is deliberately kept captured. Releasing it was meant to
+      // let the browser draw its own handles, but it draws none for a
+      // selection it did not make — and letting go cost the move events that
+      // growing the highlight depends on, which were delivered somewhere else
+      // entirely for the rest of the drag.
       allowSelection(true)
       if (selectWordAt(clientX, clientY)) {
         selecting = true
+        reportSelection()
         // The only feedback that the mode changed. Without it a hold that
         // selects and a hold that does nothing feel identical until the
         // finger lifts.
@@ -544,7 +600,10 @@ export function attachFlipGestures(
       const here = toLocal(e.clientX, e.clientY)
       if (Math.hypot(here.x - start.x, here.y - start.y) > SELECT_SLOP) cancelHold()
     }
-    if (selecting) return
+    if (selecting) {
+      extendSelectionTo(e.clientX, e.clientY)
+      return
+    }
 
     if (pinch) {
       movePinch()
@@ -636,6 +695,8 @@ export function attachFlipGestures(
     if (selecting) {
       selecting = false
       pointerId = null
+      // Reported again because the drag may have grown it since the hold.
+      reportSelection()
       return
     }
 
@@ -756,6 +817,18 @@ export function attachFlipGestures(
     setZoom({ scale: 1, x: 0, y: 0 })
   }
 
+  /*
+   * Highlighted text is draggable, and a finger resting on a highlight and
+   * then moving is how a drag-and-drop begins. The browser takes the gesture
+   * the moment it decides that is what is happening, and every move after it
+   * goes to the drag instead of here — which left a highlight that could be
+   * made but never widened, because the events that would widen it stopped
+   * arriving. Nothing in a reader is ever dragged anywhere, so the whole
+   * mechanism is turned off.
+   */
+  const onDragStart = (e: Event): void => e.preventDefault()
+
+  surface.addEventListener('dragstart', onDragStart)
   surface.addEventListener('pointerdown', onPointerDown)
   surface.addEventListener('pointermove', onPointerMove)
   surface.addEventListener('pointerup', onPointerUp)
@@ -767,6 +840,7 @@ export function attachFlipGestures(
     stopPump()
     cancelHold()
     clearSelection()
+    surface.removeEventListener('dragstart', onDragStart)
     surface.removeEventListener('pointerdown', onPointerDown)
     surface.removeEventListener('pointermove', onPointerMove)
     surface.removeEventListener('pointerup', onPointerUp)
