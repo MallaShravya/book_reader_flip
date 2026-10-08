@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { PageFlip } from 'page-flip'
 import type { BookMeta, LoadProgress, ReaderSettings, ReadingAnchor } from '../types'
 import { GLOSS_OPACITY } from '../types'
@@ -103,6 +103,21 @@ const HANDLE_REACH = 14
  */
 function SelectionTools({ selection }: { selection: SelectionShape }): ReactNode {
   const [copied, setCopied] = useState(false)
+  const bar = useRef<HTMLDivElement>(null)
+  /**
+   * Half the bar's width, once it has one.
+   *
+   * The bar is centred on the highlight by shifting it half its own width, so
+   * keeping it on screen means knowing that width — and it depends on what is
+   * in it, which is why it is measured rather than assumed. Before the first
+   * measurement it is treated as having no width, which centres it exactly and
+   * is corrected in the same frame.
+   */
+  const [reach, setReach] = useState(0)
+
+  useLayoutEffect(() => {
+    setReach((bar.current?.offsetWidth ?? 0) / 2)
+  }, [selection.text])
 
   // Above the highlight, unless that would put it off the top of the screen,
   // in which case below — the one place it is certain not to cover the words
@@ -112,12 +127,16 @@ function SelectionTools({ selection }: { selection: SelectionShape }): ReactNode
 
   return (
     <div
+      ref={bar}
       className="selection-tools"
       style={{
         top,
-        left: Math.max(
-          8,
-          Math.min(window.innerWidth - 8, selection.bounds.left + selection.bounds.width / 2)
+        // Centred on the highlight, then pushed back inside the screen. A
+        // highlight at the start of a line sits against the left edge, and
+        // without this the bar hung half off it.
+        left: Math.min(
+          Math.max(selection.bounds.left + selection.bounds.width / 2, reach + 8),
+          window.innerWidth - reach - 8
         )
       }}
       // The bar must not be what dismisses the highlight it belongs to.

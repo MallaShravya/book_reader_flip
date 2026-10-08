@@ -84,11 +84,26 @@ export function selectionShape(): SelectionShape | null {
 }
 
 /**
- * Select the word around a point.
+ * How far outside a word still counts as pressing it.
  *
- * `modify` is not standardised either, so a browser without it is left with
- * the caret — selectable, just not pre-filled, which is a far better failure
- * than a hold that does nothing at all.
+ * Small on purpose. A finger is wider than this, but the margins and the gaps
+ * between paragraphs are much wider still, and the point is to tell a press on
+ * a word from a press on the page around one.
+ */
+const WORD_PAD = 4
+
+/**
+ * Select the word around a point, if the point is on a word.
+ *
+ * `caretRangeFromPoint` answers for anywhere on the page: press the margin and
+ * it returns the nearest position in the text, which is how holding blank
+ * paper used to highlight the first word of the nearest line and offer to copy
+ * it. So the word it lands on is measured, and the press has to be inside it.
+ *
+ * `modify` is not standardised, so a browser without it is left with the caret
+ * — and with it, the check below, which collapses that caret and selects
+ * nothing. A hold that does nothing is the right outcome there: the only thing
+ * worse than no selection is one the reader did not ask for.
  */
 export function selectWordAt(x: number, y: number): boolean {
   const selection = window.getSelection()
@@ -108,7 +123,24 @@ export function selectWordAt(x: number, y: number): boolean {
     withModify.modify('move', 'backward', 'word')
     withModify.modify('extend', 'forward', 'word')
   }
-  return !selection.isCollapsed
+
+  if (selection.isCollapsed || !selection.toString().trim()) {
+    selection.removeAllRanges()
+    return false
+  }
+
+  const onTheWord = [...selection.getRangeAt(0).getClientRects()].some(
+    (r) =>
+      x >= r.left - WORD_PAD &&
+      x <= r.right + WORD_PAD &&
+      y >= r.top - WORD_PAD &&
+      y <= r.bottom + WORD_PAD
+  )
+  if (!onTheWord) {
+    selection.removeAllRanges()
+    return false
+  }
+  return true
 }
 
 /** Move the loose end of the selection to a point, leaving its anchor alone. */
