@@ -191,11 +191,13 @@ function SelectionTools({
 function SelectionHandle({
   edge,
   at,
-  onChange
+  onChange,
+  onEditing
 }: {
   edge: 'start' | 'end'
   at: DOMRect
   onChange: (shape: SelectionShape | null) => void
+  onEditing: (on: boolean) => void
 }): ReactNode {
   /** The end *not* being dragged, which the selection is rebuilt against. */
   const anchor = useRef<TextPoint | null>(null)
@@ -215,6 +217,7 @@ function SelectionHandle({
         const ends = selectionEnds()
         if (!ends) return
         anchor.current = edge === 'start' ? ends.to : ends.from
+        onEditing(true)
         e.currentTarget.setPointerCapture(e.pointerId)
       }}
       onPointerMove={(e) => {
@@ -227,10 +230,12 @@ function SelectionHandle({
       }}
       onPointerUp={(e) => {
         anchor.current = null
+        onEditing(false)
         e.currentTarget.releasePointerCapture?.(e.pointerId)
       }}
       onPointerCancel={() => {
         anchor.current = null
+        onEditing(false)
       }}
       aria-hidden="true"
     >
@@ -256,7 +261,7 @@ export default function Reader({
   const paginatorRef = useRef<EpubPaginator | null>(null)
   const pdfRef = useRef<PdfBook | null>(null)
   const parsedRef = useRef<ParsedEpub | null>(null)
-  const gesturesRef = useRef<{ detach: () => void; resetZoom: () => void } | null>(null)
+  const gesturesRef = useRef<ReturnType<typeof attachFlipGestures> | null>(null)
   const chunkStatsRef = useRef<{ chapters: number; chunks: number } | null>(null)
   const startPageRef = useRef(book.lastPage)
   /**
@@ -377,6 +382,10 @@ export default function Reader({
 
   /** The word whose definition is open, or null when none is. */
   const [defining, setDefining] = useState<string | null>(null)
+
+  const onEditing = useCallback((on: boolean): void => {
+    gesturesRef.current?.setEditing(on)
+  }, [])
 
   const toggleFullscreen = useCallback((): void => {
     // A rejection means the browser declined — no user gesture in hand, or a
@@ -958,8 +967,18 @@ export default function Reader({
       {selection && (
         <>
           <SelectionTools selection={selection} onDefine={setDefining} />
-          <SelectionHandle edge="start" at={selection.start} onChange={setSelection} />
-          <SelectionHandle edge="end" at={selection.end} onChange={setSelection} />
+          <SelectionHandle
+            edge="start"
+            at={selection.start}
+            onChange={setSelection}
+            onEditing={onEditing}
+          />
+          <SelectionHandle
+            edge="end"
+            at={selection.end}
+            onChange={setSelection}
+            onEditing={onEditing}
+          />
         </>
       )}
 

@@ -118,7 +118,7 @@ export function attachFlipGestures(
   flip: PageFlip,
   thresholds: GestureThresholds = DEFAULT_THRESHOLDS,
   handlers: GestureHandlers = {}
-): { detach: () => void; resetZoom: () => void } {
+): { detach: () => void; resetZoom: () => void; setEditing: (on: boolean) => void } {
   const surface = (mount.querySelector('.stf__block') as HTMLElement | null) ?? mount
 
   /** Counting down to a selection, or null when no finger is resting. */
@@ -127,6 +127,8 @@ export function attachFlipGestures(
   let selecting = false
   /** This gesture began on top of a highlight and has put it away. */
   let dismissing = false
+  /** A handle is being dragged, so an empty selection is a passing state. */
+  let editing = false
 
   /**
    * Hand the text to the browser, or take it back.
@@ -752,6 +754,32 @@ export function attachFlipGestures(
    */
   const onDragStart = (e: Event): void => e.preventDefault()
 
+  /**
+   * The selection changing by any route but ours.
+   *
+   * The browser collapses a selection whenever something is tapped, and the
+   * thing tapped is often not this element: the scrim over an open sheet takes
+   * the touch, the highlight goes, and nothing here hears about it — leaving a
+   * copy bar and two handles standing over text that is no longer selected.
+   *
+   * Switching the text back to unselectable as it empties matters as much as
+   * the report. The page stays selectable for as long as a highlight is live
+   * so the handles can move it, and that is the whole window in which a plain
+   * tap can make a selection of its own: the one thing a hold was meant to be
+   * required for.
+   */
+  const onSelectionChange = (): void => {
+    // Our own gestures report themselves, with the geometry they already have.
+    if (selecting) return
+    const shape = selectionShape()
+    // Not while a handle is in hand: dragging one end past the other empties
+    // the selection for a moment, and taking the text away mid-drag would end
+    // the drag rather than let it come back.
+    if (!shape && !editing) allowSelection(false)
+    handlers.onSelect?.(shape)
+  }
+
+  document.addEventListener('selectionchange', onSelectionChange)
   surface.addEventListener('dragstart', onDragStart)
   surface.addEventListener('pointerdown', onPointerDown)
   surface.addEventListener('pointermove', onPointerMove)
@@ -764,6 +792,7 @@ export function attachFlipGestures(
     stopPump()
     cancelHold()
     clearSelection()
+    document.removeEventListener('selectionchange', onSelectionChange)
     surface.removeEventListener('dragstart', onDragStart)
     surface.removeEventListener('pointerdown', onPointerDown)
     surface.removeEventListener('pointermove', onPointerMove)
@@ -771,7 +800,19 @@ export function attachFlipGestures(
     surface.removeEventListener('pointercancel', onPointerCancel)
   }
 
-  return { detach, resetZoom }
+  /**
+   * Say that a handle is in hand.
+   *
+   * The reader draws the handles, so only the reader knows when one is being
+   * dragged — and that is the one time an empty selection must not be taken
+   * for the end of the selection.
+   */
+  const setEditing = (on: boolean): void => {
+    editing = on
+    if (on) allowSelection(true)
+  }
+
+  return { detach, resetZoom, setEditing }
 }
 
 function rectWidth(el: HTMLElement): number {
