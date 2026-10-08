@@ -122,6 +122,27 @@ export default defineConfig({
         // offline too.
         runtimeCaching: [
           {
+            /*
+              The dictionary. Shards are immutable — a shard's contents change
+              only when the whole dictionary is rebuilt, which changes the
+              build — so the first answer is the only one ever needed.
+
+              No age limit, deliberately. An expiry would quietly delete words
+              a reader had already looked up, turning a dictionary that works
+              on a train into one that works on a train for ninety days. The
+              entry count is the bound instead, and it is generous: a reader
+              who has touched three hundred shards has most of the English
+              they will ever reach for.
+            */
+            urlPattern: ({ url }) => url.pathname.includes('/dict/'),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'dictionary',
+              expiration: { maxEntries: 300 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
+          },
+          {
             urlPattern: ({ url }) => url.pathname.includes('/pdfjs/'),
             handler: 'CacheFirst',
             options: {

@@ -2,12 +2,14 @@
   "name": "book-reader-appendix",
   "private": true,
   "type": "module",
-  "description": "Generators for the image assets in public/. Not part of the app build.",
+  "description": "Generators for the assets in public/. Not part of the app build.",
   "scripts": {
     "burn": "node paper-texture/scorch.mjs && node paper-texture/mirror.mjs",
-    "shelf": "node wood-texture/photo.mjs"
+    "shelf": "node wood-texture/photo.mjs",
+    "define": "node dictionary/build.mjs"
   },
   "dependencies": {
-    "@napi-rs/canvas": "^1.0.7"
+    "@napi-rs/canvas": "^1.0.7",
+    "wordnet-db": "^3.1.14"
   }
 }

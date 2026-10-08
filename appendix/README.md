@@ -13,6 +13,7 @@ cd appendix
 npm install
 npm run burn     # the Burnt theme's page edges
 npm run shelf    # the library's bookshelf
+npm run define   # the dictionary
 ```
 
 Both write straight into `../public/`, overwriting what is committed. Check
@@ -52,3 +53,37 @@ it.
 from value noise, with no photograph. It never read as convincingly as the
 photograph and nothing uses it, but it is the record of what was tried, and it
 writes its variants to its own `out/` rather than to `public/`.
+
+## dictionary — the word a reader stopped on
+
+`build.mjs` turns WordNet into `public/dict/`. Not an image like the rest of
+this folder, but here for the same reason: what it produces is committed, and
+committed data whose source has been lost can only be trusted or thrown away.
+
+The dictionary is sharded rather than shipped whole. A lookup needs one word,
+so it fetches one file — a few kilobytes — and the service worker keeps what
+has been asked for. Shards are named for the prefix of the words they hold and
+split again wherever a shard would grow past 48 kB, because English is not
+spread evenly across its alphabet: a flat two letters left `co` at a third of
+a megabyte while half the shards sat under a kilobyte. No shard's name is a
+prefix of another's, so the file holding a word is the longest name the word
+starts with, and `manifest.json` lists them.
+
+What is dropped, and why:
+
+- **Multi-word entries.** `sea_level`, `take_off`. A reader holds one word and
+  gets one word, so nothing could look them up.
+- **Examples.** WordNet glosses carry quoted examples after the definition.
+  They are a third of the bytes and a reader interrupted mid-sentence wants
+  the definition.
+- **Anything but letters, hyphen and apostrophe.** Shard names become
+  filenames, so `u.s.` and `9/11` would need escaping on the way out and
+  unescaping on the way in, for entries nobody reading a novel stops on.
+- **All but four senses**, taken one part of speech at a time. `go` has four
+  noun senses before its first verb, and a flat cut left it a board game.
+
+Function words — `the`, `of`, `and` — are not in WordNet at all and so are not
+here. Nobody looks them up.
+
+WordNet 3.1 is Princeton University's, and its licence asks that the copyright
+notice travel with the data. The app carries it in the dictionary panel.
