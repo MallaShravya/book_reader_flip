@@ -1552,6 +1552,41 @@ button {
   animation: rise 0.18s ease-out;
 }
 
+/*
+  The definition sheet.
+
+  Capped and scrollable rather than allowed to grow: four senses of a common
+  word can run past half the screen, and a sheet that tall stops being a note
+  over the page and becomes a page of its own.
+*/
+.sheet-definition .senses {
+  margin: 0.2rem 0 0;
+  padding-left: 1.15rem;
+  max-height: 42vh;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+.sheet-definition .senses li {
+  margin-bottom: 0.5rem;
+}
+
+/*
+  The part of speech, set apart from the definition it introduces. Italic and
+  dimmed rather than a label or a badge: it is grammar, and it reads the way a
+  dictionary has always printed it.
+*/
+.sense-part {
+  font-style: italic;
+  color: var(--text-dim);
+  margin-right: 0.25rem;
+}
+
+.sense-source {
+  margin-top: 0.7rem;
+  font-size: 0.72rem;
+}
+
 /* --------------------------------------------------------------- stepper */
 
 /* Two steppers side by side, so the sheet stays short enough to scan. */

@@ -125,6 +125,8 @@ export function attachFlipGestures(
   let holdTimer: number | undefined
   /** A selection was started by this gesture, so it must not turn a page. */
   let selecting = false
+  /** This gesture began on top of a highlight and has put it away. */
+  let dismissing = false
 
   /**
    * Hand the text to the browser, or take it back.
@@ -443,13 +445,18 @@ export function attachFlipGestures(
     cancelHold()
     selecting = false
 
-    // Touching the page while something is highlighted dismisses it, and does
-    // nothing else. Turning a page out from under a selection would leave the
-    // handles pointing at text that is no longer there.
-    if (!window.getSelection()?.isCollapsed) {
-      clearSelection()
-      return
-    }
+    /*
+     * Touching the page while something is highlighted puts it away — and
+     * then carries on as an ordinary gesture.
+     *
+     * Returning here instead meant the first press after a lookup was spent
+     * only on dismissing, so holding a second word did nothing and had to be
+     * done twice. Now a hold selects the next word, a swipe turns the page,
+     * and only a tap is swallowed: a tap would otherwise put the controls away
+     * as well, which is two things for one touch.
+     */
+    dismissing = !window.getSelection()?.isCollapsed
+    if (dismissing) clearSelection()
 
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
 
@@ -604,6 +611,7 @@ export function attachFlipGestures(
     // just made, and the text stays selectable so the handles can be dragged.
     if (selecting) {
       selecting = false
+      dismissing = false
       pointerId = null
       // Reported again because the drag may have grown it since the hold.
       reportSelection()
@@ -654,6 +662,9 @@ export function attachFlipGestures(
     surface.releasePointerCapture?.(e.pointerId)
     if (completing) return
 
+    const dismissed = dismissing
+    dismissing = false
+
     const end = toLocal(e.clientX, e.clientY)
     const dx = end.x - start.x
     const dy = end.y - start.y
@@ -662,6 +673,8 @@ export function attachFlipGestures(
     // Never locked a direction, so nothing was folded: this was a tap.
     // A plain flip animates cleanly from the corner here.
     if (forward === null) {
+      // All this tap did was put the highlight away.
+      if (dismissed) return
       const rect = surface.getBoundingClientRect()
       const relative = end.x / rect.width
       if (isZoomed()) return
@@ -710,6 +723,7 @@ export function attachFlipGestures(
     pointers.delete(e.pointerId)
     cancelHold()
     selecting = false
+    dismissing = false
     if (pointers.size < 2) pinch = null
     panning = null
 

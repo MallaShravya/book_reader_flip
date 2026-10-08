@@ -24,6 +24,7 @@ import {
   onFullscreenChange,
   supportsFullscreen
 } from '../lib/fullscreen'
+import DefinitionSheet from './DefinitionSheet'
 import SettingsSheet from './SettingsSheet'
 import ContentsSheet, { type ChapterMark } from './ContentsSheet'
 
@@ -101,7 +102,24 @@ const HANDLE_REACH = 14
  * is transformed while it turns, and anything positioned inside it inherits
  * the fold.
  */
-function SelectionTools({ selection }: { selection: SelectionShape }): ReactNode {
+/**
+ * Whether a highlight is one word, and so something a dictionary could hold.
+ *
+ * Trailing punctuation is ignored — a word at the end of a sentence is still a
+ * word — but a phrase is not an entry anywhere, and offering to define one
+ * would be a button that always failed.
+ */
+function isOneWord(text: string): boolean {
+  return /^[^A-Za-z]*[A-Za-z][A-Za-z'-]*[^A-Za-z]*$/.test(text)
+}
+
+function SelectionTools({
+  selection,
+  onDefine
+}: {
+  selection: SelectionShape
+  onDefine: (word: string) => void
+}): ReactNode {
   const [copied, setCopied] = useState(false)
   const bar = useRef<HTMLDivElement>(null)
   /**
@@ -151,6 +169,9 @@ function SelectionTools({ selection }: { selection: SelectionShape }): ReactNode
       >
         {copied ? 'Copied' : 'Copy'}
       </button>
+      {isOneWord(selection.text) && (
+        <button onClick={() => onDefine(selection.text)}>Define</button>
+      )}
     </div>
   )
 }
@@ -353,6 +374,9 @@ export default function Reader({
   const onSelect = useCallback((shape: SelectionShape | null): void => {
     setSelection(shape)
   }, [])
+
+  /** The word whose definition is open, or null when none is. */
+  const [defining, setDefining] = useState<string | null>(null)
 
   const toggleFullscreen = useCallback((): void => {
     // A rejection means the browser declined — no user gesture in hand, or a
@@ -933,7 +957,7 @@ export default function Reader({
     >
       {selection && (
         <>
-          <SelectionTools selection={selection} />
+          <SelectionTools selection={selection} onDefine={setDefining} />
           <SelectionHandle edge="start" at={selection.start} onChange={setSelection} />
           <SelectionHandle edge="end" at={selection.end} onChange={setSelection} />
         </>
@@ -1068,6 +1092,10 @@ export default function Reader({
           Next <span aria-hidden="true">›</span>
         </button>
       </div>
+
+      {defining !== null && (
+        <DefinitionSheet word={defining} onClose={() => setDefining(null)} />
+      )}
 
       {showContents && (
         <ContentsSheet
