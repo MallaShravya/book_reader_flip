@@ -326,7 +326,54 @@ export default function App(): ReactNode {
     [open]
   )
 
+  /**
+   * Whether the open book has a history entry of its own behind it.
+   *
+   * Checked before going back rather than assumed, so a close can never send
+   * the phone somewhere this app did not put it.
+   */
+  const pushedForBook = useRef(false)
+
+  /**
+   * Give the phone's back gesture something to land on.
+   *
+   * A single page has one history entry, and the swipe from the edge pops it:
+   * opening a book changed nothing about the history, so going back from one
+   * left the app altogether rather than returning to the shelf. Opening a book
+   * is a place in this app and now says so.
+   *
+   * Keyed on the book's id, not the book: renaming the open book replaces the
+   * object, and depending on that would stack an entry for every edit.
+   */
+  const openId = open?.id
+  useEffect(() => {
+    if (openId === undefined) return
+
+    history.pushState({ book: openId }, '')
+    pushedForBook.current = true
+
+    const onPop = (): void => {
+      pushedForBook.current = false
+      setOpen(null)
+      void refresh()
+    }
+
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [openId, refresh])
+
+  /**
+   * Leave the reader.
+   *
+   * Goes back rather than closing directly, so the button and the gesture are
+   * the same act. Closing on its own would leave the entry behind, and the
+   * next swipe from the edge would be spent on an entry with nothing under it.
+   */
   const closeReader = useCallback(() => {
+    if (pushedForBook.current) {
+      history.back()
+      return
+    }
     setOpen(null)
     void refresh()
   }, [refresh])
